@@ -166,6 +166,15 @@ public final class DebugDiagnostics {
         provider(provider, operation, null, actor, result, accountClass, required, observed, nextAction);
     }
 
+    /** Emits three capability sets for call sites that do not yet have a request identity. */
+    public static void provider(String provider, String operation, UUID actor, ProviderResult<?> result,
+                                String accountClass, ProviderCapabilities required,
+                                ProviderCapabilities providerDeclared, ProviderCapabilities accountObserved,
+                                String nextAction) {
+        provider(provider, operation, null, actor, result, accountClass, required, providerDeclared,
+                accountObserved, nextAction);
+    }
+
     public static void provider(String provider, String operation, RequestId requestId, UUID actor,
                                 ProviderResult<?> result, String accountClass, ProviderCapabilities required,
                                 ProviderCapabilities observed, String nextAction) {

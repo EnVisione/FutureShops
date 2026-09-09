@@ -70,7 +70,7 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
         if (!runtime.available()) {
             ProviderReadiness result = new ProviderReadiness(ProviderLifecycle.FAILED, runtime.diagnostic());
             DebugDiagnostics.provider(PROVIDER_ID, "readiness", null, null, "unknown", null, capabilities(),
-                    "keep provider unavailable");
+                    ProviderCapabilities.none(), "keep provider unavailable");
             return result;
         }
         try {
@@ -78,18 +78,18 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
                 ProviderReadiness result = new ProviderReadiness(ProviderLifecycle.MISSING,
                         "pixelmon economy implementation is unavailable");
                 DebugDiagnostics.provider(PROVIDER_ID, "readiness", null, null, "unknown", null, capabilities(),
-                        "wait for Pixelmon readiness");
+                        ProviderCapabilities.none(), "wait for Pixelmon readiness");
                 return result;
             }
             ProviderReadiness result = new ProviderReadiness(ProviderLifecycle.READY, "");
             DebugDiagnostics.provider(PROVIDER_ID, "readiness", null, null, "unknown", null, capabilities(),
-                    "query or precheck before mutation");
+                    ProviderCapabilities.none(), "query or precheck before mutation");
             return result;
         } catch (ReflectiveOperationException | RuntimeException exception) {
             ProviderReadiness result = new ProviderReadiness(ProviderLifecycle.FAILED,
                     "pixelmon economy readiness check failed");
             DebugDiagnostics.provider(PROVIDER_ID, "readiness", null, null, "unknown", null, capabilities(),
-                    "keep provider unavailable and inspect the sanitized failure");
+                    ProviderCapabilities.none(), "keep provider unavailable and inspect the sanitized failure");
             return result;
         }
     }
@@ -103,20 +103,20 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
         if (!account.available()) {
             ProviderResult<BalanceSnapshot> result = ProviderResult.unavailable(account.error(), account.diagnostic());
             DebugDiagnostics.provider(PROVIDER_ID, "balance", playerId, result, account.classification(), null,
-                    capabilities(), "retry after readiness is restored");
+                    capabilities(), observedCapabilities(account), "retry after readiness is restored");
             return result;
         }
         try {
             ProviderResult<BalanceSnapshot> result = ProviderResult.confirmed(
                     new BalanceSnapshot(playerId, toMinorUnits(account.balance())));
             DebugDiagnostics.provider(PROVIDER_ID, "balance", playerId, result, account.classification(), null,
-                    capabilities(), "balance query has no side effect");
+                    capabilities(), observedCapabilities(account), "balance query has no side effect");
             return result;
         } catch (ArithmeticException | IllegalArgumentException exception) {
             ProviderResult<BalanceSnapshot> result = ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
                     "pixelmon balance is not an exact integer amount");
             DebugDiagnostics.provider(PROVIDER_ID, "balance", playerId, result, account.classification(), null,
-                    capabilities(), "keep the account unavailable until exact conversion is proven");
+                    capabilities(), observedCapabilities(account), "keep the account unavailable until exact conversion is proven");
             return result;
         }
     }
@@ -130,14 +130,14 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
         if (!account.available()) {
             ProviderResult<BalanceSnapshot> result = ProviderResult.unavailable(account.error(), account.diagnostic());
             DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
-                    capabilities(), capabilities(), "do not append intent");
+                    capabilities(), capabilities(), observedCapabilities(account), "do not append intent");
             return result;
         }
         if (runtime.nativeMixinAvailable() && !(account.value() instanceof PixelmonNativeEconomyAccess)) {
             ProviderResult<BalanceSnapshot> result = ProviderResult.rejected(ProviderError.CAPABILITY_MISSING,
                     "pixelmon account is not the native receipt account");
             DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
-                    capabilities(), capabilities(), "leave journal and custody unchanged");
+                    capabilities(), capabilities(), observedCapabilities(account), "leave journal and custody unchanged");
             return result;
         }
         long balance;
@@ -147,7 +147,7 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
             ProviderResult<BalanceSnapshot> result = ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
                     "pixelmon balance is not an exact integer amount");
             DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
-                    capabilities(), capabilities(), "keep the mutation refused");
+                    capabilities(), capabilities(), observedCapabilities(account), "keep the mutation refused");
             return result;
         }
         if (requiresFunds(request.kind())) {
@@ -156,20 +156,20 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
                     ProviderResult<BalanceSnapshot> result = ProviderResult.rejected(ProviderError.INSUFFICIENT_FUNDS,
                             "insufficient PokéDollars");
                     DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
-                            capabilities(), capabilities(), "leave journal and custody unchanged");
+                            capabilities(), capabilities(), observedCapabilities(account), "leave journal and custody unchanged");
                     return result;
                 }
             } catch (ReflectiveOperationException | RuntimeException exception) {
                 ProviderResult<BalanceSnapshot> result = ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
                         "pixelmon funds check failed");
                 DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
-                        capabilities(), capabilities(), "keep the mutation refused");
+                        capabilities(), capabilities(), observedCapabilities(account), "keep the mutation refused");
                 return result;
             }
         }
         ProviderResult<BalanceSnapshot> result = ProviderResult.confirmed(new BalanceSnapshot(request.actor(), balance));
         DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
-                capabilities(), capabilities(), "continue through the durable coordinator");
+                capabilities(), capabilities(), observedCapabilities(account), "continue through the durable coordinator");
         return result;
     }
 
@@ -230,20 +230,20 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
         if (!(account.value() instanceof PixelmonNativeEconomyAccess nativeAccount)) {
             ProviderResult<MutationReceipt> result = mutationRefused();
             DebugDiagnostics.provider(PROVIDER_ID, "mutation", request.actor(), result, account.classification(),
-                    capabilities(), capabilities(), "keep the surface refused before intent or custody");
+                    capabilities(), capabilities(), observedCapabilities(account), "keep the surface refused before intent or custody");
             return result;
         }
         if (server == null) {
             ProviderResult<MutationReceipt> result = ProviderResult.unavailable(ProviderError.NOT_READY,
                     "pixelmon mutation requires a live server context");
             DebugDiagnostics.provider(PROVIDER_ID, "mutation", request.actor(), result, account.classification(),
-                    capabilities(), capabilities(), "run only on a live server");
+                    capabilities(), capabilities(), observedCapabilities(account), "run only on a live server");
             return result;
         }
         ProviderResult<MutationReceipt> result = nativeAccount.futureshopsMutate(request.requestId(), request.kind(),
                 request.amountMinorUnits(), server.registryAccess());
         DebugDiagnostics.provider(PROVIDER_ID, "mutation", request.actor(), result, account.classification(),
-                capabilities(), capabilities(), result.confirmed() ? "finalize the coordinator record"
+                capabilities(), capabilities(), observedCapabilities(account), result.confirmed() ? "finalize the coordinator record"
                         : "follow the typed result and do not guess");
         return result;
     }
@@ -267,6 +267,14 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
     private static ProviderResult<MutationReceipt> mutationRefused() {
         return ProviderResult.rejected(ProviderError.CAPABILITY_MISSING,
                 "pixelmon direct mutations require durable receipts");
+    }
+
+    private static ProviderCapabilities observedCapabilities(AccountRead account) {
+        if (account == null || !account.available()) {
+            return ProviderCapabilities.none();
+        }
+        boolean nativeReceipt = account.value() instanceof PixelmonNativeEconomyAccess;
+        return new ProviderCapabilities(true, true, nativeReceipt, nativeReceipt, nativeReceipt, nativeReceipt);
     }
 
     private AccountRead readAccount(UUID playerId) {
