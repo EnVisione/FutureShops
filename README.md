@@ -64,6 +64,8 @@ The implementation and compatibility decisions are documented in [Porting notes]
 
 The public provider contract is documented in [Economy provider API](docs/api/economy-provider.md).
 
+Account bound operations now carry a versioned persisted account identity and a separate runtime proof. Provider capability declarations are never treated as proof of an account wrapper. Binding changes, conflicting request identities, unresolved legacy hybrid records, and missing runtime proof fail closed before value movement. See the [account binding contract](docs/api/economy-provider.md#account-binding-contract) for the schema and compatibility rules.
+
 The maintained documentation index is in [Documentation](docs/README.md).
 
 ## Known boundaries

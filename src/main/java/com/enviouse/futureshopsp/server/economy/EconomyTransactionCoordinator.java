@@ -1,17 +1,22 @@
 package com.enviouse.futureshopsp.server.economy;
 
 import com.enviouse.futureshopsp.api.economy.BalanceSnapshot;
+import com.enviouse.futureshopsp.api.economy.BoundEconomyOperationV1;
 import com.enviouse.futureshopsp.api.economy.EconomyCapability;
 import com.enviouse.futureshopsp.api.economy.EconomyProvider;
 import com.enviouse.futureshopsp.api.economy.MutationKind;
 import com.enviouse.futureshopsp.api.economy.MutationReceipt;
 import com.enviouse.futureshopsp.api.economy.MutationRequest;
+import com.enviouse.futureshopsp.api.economy.OperationRequest;
 import com.enviouse.futureshopsp.api.economy.ProviderCapabilities;
 import com.enviouse.futureshopsp.api.economy.ProviderError;
 import com.enviouse.futureshopsp.api.economy.ProviderLifecycle;
 import com.enviouse.futureshopsp.api.economy.ProviderResult;
 import com.enviouse.futureshopsp.api.economy.ProviderResultStatus;
+import com.enviouse.futureshopsp.api.economy.PersistedAccountBindingV1;
+import com.enviouse.futureshopsp.api.economy.RequiredCapabilities;
 import com.enviouse.futureshopsp.api.economy.RequestId;
+import com.enviouse.futureshopsp.api.economy.RuntimeBindingProofV1;
 import com.enviouse.futureshopsp.server.debug.DebugDiagnostics;
 import com.enviouse.futureshopsp.server.debug.DebugModule;
 import com.enviouse.futureshopsp.event.BalanceChangeEvent;
@@ -19,6 +24,9 @@ import net.neoforged.neoforge.common.NeoForge;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -33,6 +41,7 @@ public final class EconomyTransactionCoordinator {
     private final EconomyClaimStore claims;
     private final EconomyReceiptAuditJournal receiptAudit;
     private final Object lock = new Object();
+    private final Map<RequestId, BoundEconomyOperationV1> bindings = new HashMap<>();
 
     public EconomyTransactionCoordinator(EconomyProvider provider,
                                          EconomyLifecycleController lifecycle,
@@ -64,6 +73,140 @@ public final class EconomyTransactionCoordinator {
 
     public EconomyLifecycleSnapshot lifecycle() {
         return lifecycle.snapshot();
+    }
+
+    /**
+     * Creates a binding with no account proof. The returned operation is intentionally not
+     * admissible until an adapter supplies an independently observed runtime proof.
+     */
+    public BoundEconomyOperationV1 bind(OperationRequest request, UUID actorId,
+                                        RequiredCapabilities required) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(actorId, "actorId");
+        Objects.requireNonNull(required, "required");
+        if (!actorId.equals(request.actor())) {
+            throw new IllegalArgumentException("operation actor does not match request");
+        }
+        MutationRequest mutation = request.mutationRequest();
+        String providerClass = provider.getClass().getName();
+        String providerId = provider.providerId();
+        String backendFingerprint = EconomyRecordChecksum.sha256(providerClass);
+        String requestFingerprint = EconomyRecordChecksum.sha256(
+                request.requestId().value() + "|" + request.actor() + "|" + request.counterparty()
+                        + "|" + request.amountMinorUnits() + "|" + request.kind() + "|" + request.operation());
+        PersistedAccountBindingV1 persisted = new PersistedAccountBindingV1(
+                providerId,
+                provider.compatibilityVersion(),
+                providerId,
+                "provider-api-v" + provider.compatibilityVersion(),
+                providerClass,
+                backendFingerprint,
+                Optional.empty(),
+                "provider:" + providerId + ":" + backendFingerprint,
+                actorId,
+                provider.currency().singularName(),
+                provider.currency().decimalPlaces(),
+                providerClass,
+                0L,
+                request.requestId(),
+                request.requestId(),
+                requestFingerprint,
+                1);
+        RuntimeBindingProofV1 proof = new RuntimeBindingProofV1(providerClass,
+                provider.getClass().getClassLoader() == null ? "bootstrap" : provider.getClass().getClassLoader().toString(),
+                Set.of(providerClass), null, null, null, 0L, ProviderCapabilities.none(),
+                "account proof not supplied");
+        return bind(new BoundEconomyOperationV1(mutation, actorId, required.value(), persisted, proof));
+    }
+
+    /** Registers an adapter supplied binding once and rejects any changed identity for its UUID. */
+    public BoundEconomyOperationV1 bind(BoundEconomyOperationV1 operation) {
+        Objects.requireNonNull(operation, "operation");
+        synchronized (lock) {
+            BoundEconomyOperationV1 existing = bindings.get(operation.request().requestId());
+            if (existing != null && !sameBinding(existing, operation)) {
+                throw new IllegalStateException("REQUEST_CONFLICT: bound operation identity changed");
+            }
+            bindings.putIfAbsent(operation.request().requestId(), operation);
+            return bindings.get(operation.request().requestId());
+        }
+    }
+
+    /** Returns the immutable binding currently admitted for a request, if one exists. */
+    public Optional<BoundEconomyOperationV1> binding(RequestId requestId) {
+        Objects.requireNonNull(requestId, "requestId");
+        synchronized (lock) {
+            return Optional.ofNullable(bindings.get(requestId));
+        }
+    }
+
+    /** Runs precheck only after the same immutable account binding is still present and valid. */
+    public ProviderResult<BalanceSnapshot> preflight(BoundEconomyOperationV1 operation) {
+        Objects.requireNonNull(operation, "operation");
+        synchronized (lock) {
+            ProviderResult<BalanceSnapshot> bindingResult = validateBinding(operation);
+            if (bindingResult != null) {
+                return bindingResult;
+            }
+            return preflightInternal(operation.request());
+        }
+    }
+
+    /** Compatibility spelling for adapters that call the operation gate precheck. */
+    public ProviderResult<BalanceSnapshot> precheck(BoundEconomyOperationV1 operation) {
+        return preflight(operation);
+    }
+
+    public ProviderResult<MutationReceipt> withdraw(BoundEconomyOperationV1 operation) {
+        return executeBound(operation, MutationKind.WITHDRAW);
+    }
+
+    public ProviderResult<MutationReceipt> deposit(BoundEconomyOperationV1 operation) {
+        return executeBound(operation, MutationKind.DEPOSIT);
+    }
+
+    /** Routes a bound operation through its declared mutation kind without resolving a new account. */
+    public ProviderResult<MutationReceipt> mutate(BoundEconomyOperationV1 operation,
+                                                   MutationRequest request) {
+        Objects.requireNonNull(operation, "operation");
+        Objects.requireNonNull(request, "request");
+        if (!requestMatches(operation.request(), request)) {
+            return ProviderResult.rejected(ProviderError.REQUEST_CONFLICT,
+                    "mutation request conflicts with the bound operation");
+        }
+        return executeBound(operation, request.kind());
+    }
+
+    public ProviderResult<MutationReceipt> lookup(BoundEconomyOperationV1 operation) {
+        Objects.requireNonNull(operation, "operation");
+        synchronized (lock) {
+            ProviderResult<BalanceSnapshot> bindingResult = validateBinding(operation);
+            if (bindingResult != null) {
+                return copyFailure(bindingResult);
+            }
+            try {
+                return provider.lookup(operation.request());
+            } catch (RuntimeException exception) {
+                return ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
+                        "bound provider lookup failed");
+            }
+        }
+    }
+
+    public ProviderResult<MutationReceipt> retry(BoundEconomyOperationV1 operation) {
+        Objects.requireNonNull(operation, "operation");
+        synchronized (lock) {
+            ProviderResult<BalanceSnapshot> bindingResult = validateBinding(operation);
+            if (bindingResult != null) {
+                return copyFailure(bindingResult);
+            }
+            try {
+                return provider.retry(operation.request());
+            } catch (RuntimeException exception) {
+                return ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
+                        "bound provider retry failed");
+            }
+        }
     }
 
     /** Freezes admission when a confirmed provider leg cannot be finalized locally. */
@@ -385,6 +528,12 @@ public final class EconomyTransactionCoordinator {
             if (!providerMatches(record)) {
                 lifecycle.markAmbiguous("transaction is bound to another provider");
                 return ProviderResult.recoveryRequired("transaction provider binding requires recovery");
+            }
+            if (LegacyBindingClassifier.classify(record)
+                    == com.enviouse.futureshopsp.api.economy.LegacyBindingClassification.LEGACY_HYBRID_UNRESOLVED
+                    && !bindings.containsKey(requestId)) {
+                lifecycle.markAmbiguous("legacy hybrid account binding is unresolved");
+                return ProviderResult.recoveryRequired("legacy hybrid account binding requires original proof");
             }
             if (!record.incomplete()) {
                 if (record.resultStatus() == ProviderResultStatus.CONFIRMED) {
@@ -795,6 +944,81 @@ public final class EconomyTransactionCoordinator {
 
     private static <T> ProviderResult<T> copyFailure(ProviderResult<?> source) {
         return new ProviderResult<>(source.status(), source.error(), Optional.empty(), Optional.empty(), source.diagnostic());
+    }
+
+    private ProviderResult<MutationReceipt> executeBound(BoundEconomyOperationV1 operation,
+                                                          MutationKind expectedKind) {
+        Objects.requireNonNull(operation, "operation");
+        synchronized (lock) {
+            ProviderResult<BalanceSnapshot> bindingResult = validateBinding(operation);
+            if (bindingResult != null) {
+                return copyFailure(bindingResult);
+            }
+            return execute(operation.request(), expectedKind);
+        }
+    }
+
+    private ProviderResult<BalanceSnapshot> validateBinding(BoundEconomyOperationV1 operation) {
+        BoundEconomyOperationV1 registered = bindings.get(operation.request().requestId());
+        if (registered == null || !sameBinding(registered, operation)) {
+            return ProviderResult.rejected(ProviderError.BINDING_CHANGED,
+                    "bound operation identity is not current");
+        }
+        PersistedAccountBindingV1 persisted = operation.persistedBinding();
+        if (!provider.providerId().equals(persisted.providerId())
+                || provider.compatibilityVersion() != persisted.providerApiVersion()
+                || !provider.currency().singularName().equals(persisted.currencyId())
+                || provider.currency().decimalPlaces() != persisted.currencyPrecision()) {
+            return ProviderResult.rejected(ProviderError.BINDING_CHANGED,
+                    "provider account binding changed");
+        }
+        if (!operation.runtimeProof().valid()) {
+            return ProviderResult.rejected(ProviderError.CAPABILITY_MISSING,
+                    "account binding proof is not available");
+        }
+        ProviderCapabilities declared;
+        try {
+            declared = provider.capabilities();
+        } catch (RuntimeException exception) {
+            lifecycle.markFailed("provider capability lookup failed for bound account");
+            return ProviderResult.unavailable(ProviderError.CAPABILITY_MISSING,
+                    "provider capability lookup failed");
+        }
+        ProviderCapabilities observed = operation.runtimeProof().accountObservedCapabilities();
+        if (!supportsRequired(operation.requiredCapabilities(), declared, observed)) {
+            return ProviderResult.unavailable(ProviderError.CAPABILITY_MISSING,
+                    "bound account lacks required capabilities");
+        }
+        return null;
+    }
+
+    private static boolean sameBinding(BoundEconomyOperationV1 first, BoundEconomyOperationV1 second) {
+        if (!requestMatches(first.request(), second.request())
+                || !first.actorId().equals(second.actorId())
+                || !first.requiredCapabilities().equals(second.requiredCapabilities())
+                || !first.persistedBinding().equals(second.persistedBinding())) {
+            return false;
+        }
+        RuntimeBindingProofV1 a = first.runtimeProof();
+        RuntimeBindingProofV1 b = second.runtimeProof();
+        return a.accountClass().equals(b.accountClass())
+                && a.classLoaderIdentity().equals(b.classLoaderIdentity())
+                && a.verifiedDescriptors().equals(b.verifiedDescriptors())
+                && a.runtimeGeneration() == b.runtimeGeneration()
+                && a.effectiveCapabilityProof().equals(b.effectiveCapabilityProof())
+                && a.invalidationReason().equals(b.invalidationReason());
+    }
+
+    private static boolean supportsRequired(ProviderCapabilities required,
+                                            ProviderCapabilities declared,
+                                            ProviderCapabilities observed) {
+        for (EconomyCapability capability : EconomyCapability.values()) {
+            if (required.supports(capability)
+                    && (!declared.supports(capability) || !observed.supports(capability))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private <T> ProviderResult<T> unavailableForLifecycle() {

@@ -67,4 +67,12 @@ The bundled DanConomy 1.2.1 adapter accepts only one explicit default currency w
 
 A separately installed Vault bridge remains subject to the same complete capability and recovery proof before it can register or enable mutations. The test fixture proves that contract with a one transaction SQLite balance and receipt backend, but does not certify the unmodified legacy hybrid stack.
 
+## Account binding contract
+
+`BoundEconomyOperationV1` carries one `PersistedAccountBindingV1` and one non persisted `RuntimeBindingProofV1` through precheck, intent admission, mutation, lookup, retry, and recovery. The persisted binding records schema version, provider and adapter protocol, backend class and fingerprints, durable backend lineage, account UUID, currency and precision, manager identity, binding generation, root and leg request IDs, request fingerprint, and receipt protocol version. Runtime object references are never serialized.
+
+`AccountBindingCodecV1` provides a bounded versioned round trip for persisted bindings. A new wrapper is equivalent to an old wrapper only when all persisted identity and lineage fields match. Manager, account, backend, class loader, currency, generation, or writer exclusion changes return `BINDING_CHANGED` before a new effect. Required capabilities are intersected with provider declared capabilities and independently observed account capabilities. Provider declarations never become account evidence by inference.
+
+`LegacyBindingClassifier` keeps pre binding records explicit. Proven internal, native Pixelmon, DanConomy, and separately proven Vault records use their original compatibility route. An old hybrid Pixelmon record without complete durable identity is `LEGACY_HYBRID_UNRESOLVED` and requires original account proof. Unknown or contradictory records are `LEGACY_UNPROVABLE` and remain frozen. No legacy record is rebound to the currently selected account just to continue a transaction.
+
 The registry, server selection, transaction journal, custody, claims, and surface routing are implemented in their owning phase. This document describes the stable public contract and must be kept aligned with the API source and compatibility tests.
