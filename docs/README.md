@@ -66,3 +66,4 @@ FutureShops documentation is organized by topic. The phase verification packet r
 * [Phase 004 task 001 entry receipt](verification/phase-004/p004-task-001-2026-09-09.md)
 * [Phase 004 task 002 contract receipt](verification/phase-004/p004-task-002-2026-09-09.md)
 * [Phase 004 task 003 diagnostic receipt](verification/phase-004/p004-task-003-2026-09-09.md)
+* [Phase 004 task 004 feasibility inventory](verification/phase-004/p004-task-004-2026-09-09.md)
