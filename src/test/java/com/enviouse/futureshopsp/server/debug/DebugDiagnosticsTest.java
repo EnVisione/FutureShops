@@ -64,6 +64,9 @@ class DebugDiagnosticsTest {
                 "src/main/java/com/enviouse/futureshopsp/server/debug/DebugDiagnostics.java"));
         assertTrue(diagnostics.contains("LoggerFactory.getLogger(CATEGORY)"));
         assertTrue(diagnostics.contains("request_id="));
+        assertTrue(diagnostics.contains("SCHEMA_VERSION = 2"));
+        assertTrue(diagnostics.contains("provider_declared_capabilities="));
+        assertTrue(diagnostics.contains("account_observed_capabilities="));
         assertTrue(diagnostics.contains("next_action="));
         assertTrue(diagnostics.contains("FutureShops-Source-Commit"));
         assertTrue(diagnostics.contains("discoverArtifactHash"));

@@ -20,6 +20,7 @@ FutureShops documentation is organized by topic. The phase verification packet r
 ## Operations
 
 * [Backup and restore runbook](operations/backup-restore.md)
+* [Economy debugging](economy-debugging.md)
 
 ## Verification
 
@@ -62,3 +63,9 @@ FutureShops documentation is organized by topic. The phase verification packet r
 * [Phase 003 requirement trace](verification/phase-003/requirement-trace-2026-09-05.md)
 * [Phase 003 issue 66 readback](verification/phase-003/github-issue-66-2026-09-05.md)
 * [Phase 004 security and command audit](verification/phase-004/neoforge-2026-09-02.md)
+* [Phase 004 task 001 entry receipt](verification/phase-004/p004-task-001-2026-09-09.md)
+* [Phase 004 task 002 contract receipt](verification/phase-004/p004-task-002-2026-09-09.md)
+* [Phase 004 task 003 diagnostic receipt](verification/phase-004/p004-task-003-2026-09-09.md)
+* [Phase 004 task 004 feasibility inventory](verification/phase-004/p004-task-004-2026-09-09.md)
+* [Phase 004 task 005 exact protocol decision](verification/phase-004/p004-task-005-2026-09-09.md)
+* [Phase 004 security review](verification/phase-004/security-review-2026-09-09.md)

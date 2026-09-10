@@ -1,0 +1,9 @@
+name: FutureShopsFinalEconomyBridge
+version: 1.0.0
+main: com.enviouse.futureshopsbridge.FutureShopsFinalEconomyBridgePlugin
+api-version: '1.21'
+depend:
+  - EverNifeCore
+  - FinalEconomy
+  - PixelmonEconomyBridge
+  - Vault

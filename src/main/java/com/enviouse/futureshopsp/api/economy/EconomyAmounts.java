@@ -46,4 +46,13 @@ public final class EconomyAmounts {
             throw new IllegalArgumentException("decimal input is not an exact minor unit value", exception);
         }
     }
+
+    /** Converts a backend raw double only when its finite minor unit value is exact and bounded. */
+    public static long fromRawDouble(double value, int decimalPlaces) {
+        if (!Double.isFinite(value) || (value == 0.0d && Double.doubleToRawLongBits(value) < 0L)
+                || Math.abs(value) > 9007199254740992.0d) {
+            throw new IllegalArgumentException("raw double is not an exact supported amount");
+        }
+        return parseDecimal(BigDecimal.valueOf(value).toPlainString(), decimalPlaces);
+    }
 }

@@ -103,7 +103,8 @@ public final class EconomyCommandUtil {
             case INSUFFICIENT_FUNDS -> "command.futureshops.error.insufficient_funds";
             case NONE, INVALID_REQUEST, CAPABILITY_MISSING, NOT_READY, INCOMPATIBLE,
                  PERMISSION_DENIED, DUPLICATE_REQUEST, RECEIPT_NOT_FOUND, PROVIDER_EXCEPTION,
-                 TIMEOUT, UNKNOWN -> "command.futureshops.economy.unavailable";
+                 TIMEOUT, REQUEST_CONFLICT, BINDING_CHANGED, INVALID_PRECISION, UNKNOWN
+                    -> "command.futureshops.economy.unavailable";
         };
         player.sendSystemMessage(error(Component.translatable(key)));
     }

@@ -70,7 +70,7 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
         if (!runtime.available()) {
             ProviderReadiness result = new ProviderReadiness(ProviderLifecycle.FAILED, runtime.diagnostic());
             DebugDiagnostics.provider(PROVIDER_ID, "readiness", null, null, "unknown", null, capabilities(),
-                    "keep provider unavailable");
+                    ProviderCapabilities.none(), "keep provider unavailable");
             return result;
         }
         try {
@@ -78,18 +78,18 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
                 ProviderReadiness result = new ProviderReadiness(ProviderLifecycle.MISSING,
                         "pixelmon economy implementation is unavailable");
                 DebugDiagnostics.provider(PROVIDER_ID, "readiness", null, null, "unknown", null, capabilities(),
-                        "wait for Pixelmon readiness");
+                        ProviderCapabilities.none(), "wait for Pixelmon readiness");
                 return result;
             }
             ProviderReadiness result = new ProviderReadiness(ProviderLifecycle.READY, "");
             DebugDiagnostics.provider(PROVIDER_ID, "readiness", null, null, "unknown", null, capabilities(),
-                    "query or precheck before mutation");
+                    ProviderCapabilities.none(), "query or precheck before mutation");
             return result;
         } catch (ReflectiveOperationException | RuntimeException exception) {
             ProviderReadiness result = new ProviderReadiness(ProviderLifecycle.FAILED,
                     "pixelmon economy readiness check failed");
             DebugDiagnostics.provider(PROVIDER_ID, "readiness", null, null, "unknown", null, capabilities(),
-                    "keep provider unavailable and inspect the sanitized failure");
+                    ProviderCapabilities.none(), "keep provider unavailable and inspect the sanitized failure");
             return result;
         }
     }
@@ -103,20 +103,36 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
         if (!account.available()) {
             ProviderResult<BalanceSnapshot> result = ProviderResult.unavailable(account.error(), account.diagnostic());
             DebugDiagnostics.provider(PROVIDER_ID, "balance", playerId, result, account.classification(), null,
-                    capabilities(), "retry after readiness is restored");
+                    capabilities(), observedCapabilities(account), "retry after readiness is restored");
             return result;
         }
         try {
+            if (account.bridge() != null) {
+                ProviderResult<BigDecimal> bridgeBalance = account.bridge().balance(account.value(), playerId);
+                if (!bridgeBalance.confirmed()) {
+                    ProviderResult<BalanceSnapshot> result = ProviderResult.unavailable(bridgeBalance.error(),
+                            bridgeBalance.diagnostic());
+                    DebugDiagnostics.provider(PROVIDER_ID, "balance", playerId, result, account.classification(),
+                            null, capabilities(), observedCapabilities(account),
+                            "keep the exact hybrid account unavailable");
+                    return result;
+                }
+                ProviderResult<BalanceSnapshot> result = ProviderResult.confirmed(new BalanceSnapshot(playerId,
+                        toMinorUnits(bridgeBalance.value().orElseThrow())));
+                DebugDiagnostics.provider(PROVIDER_ID, "balance", playerId, result, account.classification(), null,
+                        capabilities(), observedCapabilities(account), "balance query has no side effect");
+                return result;
+            }
             ProviderResult<BalanceSnapshot> result = ProviderResult.confirmed(
                     new BalanceSnapshot(playerId, toMinorUnits(account.balance())));
             DebugDiagnostics.provider(PROVIDER_ID, "balance", playerId, result, account.classification(), null,
-                    capabilities(), "balance query has no side effect");
+                    capabilities(), observedCapabilities(account), "balance query has no side effect");
             return result;
         } catch (ArithmeticException | IllegalArgumentException exception) {
             ProviderResult<BalanceSnapshot> result = ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
                     "pixelmon balance is not an exact integer amount");
             DebugDiagnostics.provider(PROVIDER_ID, "balance", playerId, result, account.classification(), null,
-                    capabilities(), "keep the account unavailable until exact conversion is proven");
+                    capabilities(), observedCapabilities(account), "keep the account unavailable until exact conversion is proven");
             return result;
         }
     }
@@ -130,15 +146,41 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
         if (!account.available()) {
             ProviderResult<BalanceSnapshot> result = ProviderResult.unavailable(account.error(), account.diagnostic());
             DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
-                    capabilities(), capabilities(), "do not append intent");
+                    capabilities(), capabilities(), observedCapabilities(account), "do not append intent");
             return result;
         }
-        if (runtime.nativeMixinAvailable() && !(account.value() instanceof PixelmonNativeEconomyAccess)) {
+        if (runtime.nativeMixinAvailable() && !(account.value() instanceof PixelmonNativeEconomyAccess)
+                && account.bridge() == null) {
             ProviderResult<BalanceSnapshot> result = ProviderResult.rejected(ProviderError.CAPABILITY_MISSING,
                     "pixelmon account is not the native receipt account");
             DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
-                    capabilities(), capabilities(), "leave journal and custody unchanged");
+                    capabilities(), capabilities(), observedCapabilities(account), "leave journal and custody unchanged");
             return result;
+        }
+        if (account.bridge() != null) {
+            ProviderResult<BigDecimal> bridgePrecheck = account.bridge().precheck(account.value(), request.actor(),
+                    request.amountMinorUnits(), request.kind());
+            if (!bridgePrecheck.confirmed()) {
+                ProviderResult<BalanceSnapshot> result = nonConfirmedBalance(bridgePrecheck);
+                DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
+                        capabilities(), capabilities(), observedCapabilities(account),
+                        "leave journal and custody unchanged");
+                return result;
+            }
+            try {
+                ProviderResult<BalanceSnapshot> result = ProviderResult.confirmed(new BalanceSnapshot(request.actor(),
+                        toMinorUnits(bridgePrecheck.value().orElseThrow())));
+                DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
+                        capabilities(), capabilities(), observedCapabilities(account),
+                        "continue through the durable coordinator");
+                return result;
+            } catch (ArithmeticException | IllegalArgumentException exception) {
+                ProviderResult<BalanceSnapshot> result = ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
+                        "finaleconomy balance is not an exact integer amount");
+                DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
+                        capabilities(), capabilities(), observedCapabilities(account), "keep the mutation refused");
+                return result;
+            }
         }
         long balance;
         try {
@@ -147,7 +189,7 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
             ProviderResult<BalanceSnapshot> result = ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
                     "pixelmon balance is not an exact integer amount");
             DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
-                    capabilities(), capabilities(), "keep the mutation refused");
+                    capabilities(), capabilities(), observedCapabilities(account), "keep the mutation refused");
             return result;
         }
         if (requiresFunds(request.kind())) {
@@ -156,20 +198,20 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
                     ProviderResult<BalanceSnapshot> result = ProviderResult.rejected(ProviderError.INSUFFICIENT_FUNDS,
                             "insufficient PokéDollars");
                     DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
-                            capabilities(), capabilities(), "leave journal and custody unchanged");
+                            capabilities(), capabilities(), observedCapabilities(account), "leave journal and custody unchanged");
                     return result;
                 }
             } catch (ReflectiveOperationException | RuntimeException exception) {
                 ProviderResult<BalanceSnapshot> result = ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
                         "pixelmon funds check failed");
                 DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
-                        capabilities(), capabilities(), "keep the mutation refused");
+                        capabilities(), capabilities(), observedCapabilities(account), "keep the mutation refused");
                 return result;
             }
         }
         ProviderResult<BalanceSnapshot> result = ProviderResult.confirmed(new BalanceSnapshot(request.actor(), balance));
         DebugDiagnostics.provider(PROVIDER_ID, "precheck", request.actor(), result, account.classification(),
-                capabilities(), capabilities(), "continue through the durable coordinator");
+                capabilities(), capabilities(), observedCapabilities(account), "continue through the durable coordinator");
         return result;
     }
 
@@ -200,6 +242,11 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
         }
         try {
             Object account = runtime.account(request.actor());
+            FinalEconomyTransactionBridgeAccess bridge = FinalEconomyTransactionBridgeAccess.discover(account);
+            if (bridge != null) {
+                return bridge.lookup(account, request.actor(), request.requestId(), request.amountMinorUnits(),
+                        request.kind());
+            }
             if (!(account instanceof PixelmonNativeEconomyAccess nativeAccount)) {
                 return ProviderResult.rejected(ProviderError.CAPABILITY_MISSING,
                         "pixelmon account is not a native receipt account");
@@ -228,22 +275,30 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
             return ProviderResult.unavailable(account.error(), account.diagnostic());
         }
         if (!(account.value() instanceof PixelmonNativeEconomyAccess nativeAccount)) {
+            if (account.bridge() != null) {
+                ProviderResult<MutationReceipt> result = account.bridge().mutate(account.value(), request.actor(),
+                        request.requestId(), request.amountMinorUnits(), request.kind());
+                DebugDiagnostics.provider(PROVIDER_ID, "mutation", request.actor(), result, account.classification(),
+                        capabilities(), capabilities(), observedCapabilities(account), result.confirmed()
+                                ? "finalize the coordinator record" : "follow the typed result and do not guess");
+                return result;
+            }
             ProviderResult<MutationReceipt> result = mutationRefused();
             DebugDiagnostics.provider(PROVIDER_ID, "mutation", request.actor(), result, account.classification(),
-                    capabilities(), capabilities(), "keep the surface refused before intent or custody");
+                    capabilities(), capabilities(), observedCapabilities(account), "keep the surface refused before intent or custody");
             return result;
         }
         if (server == null) {
             ProviderResult<MutationReceipt> result = ProviderResult.unavailable(ProviderError.NOT_READY,
                     "pixelmon mutation requires a live server context");
             DebugDiagnostics.provider(PROVIDER_ID, "mutation", request.actor(), result, account.classification(),
-                    capabilities(), capabilities(), "run only on a live server");
+                    capabilities(), capabilities(), observedCapabilities(account), "run only on a live server");
             return result;
         }
         ProviderResult<MutationReceipt> result = nativeAccount.futureshopsMutate(request.requestId(), request.kind(),
                 request.amountMinorUnits(), server.registryAccess());
         DebugDiagnostics.provider(PROVIDER_ID, "mutation", request.actor(), result, account.classification(),
-                capabilities(), capabilities(), result.confirmed() ? "finalize the coordinator record"
+                capabilities(), capabilities(), observedCapabilities(account), result.confirmed() ? "finalize the coordinator record"
                         : "follow the typed result and do not guess");
         return result;
     }
@@ -269,6 +324,25 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
                 "pixelmon direct mutations require durable receipts");
     }
 
+    private static ProviderResult<BalanceSnapshot> nonConfirmedBalance(ProviderResult<BigDecimal> result) {
+        return switch (result.status()) {
+            case REJECTED -> ProviderResult.rejected(result.error(), result.diagnostic());
+            case AMBIGUOUS -> ProviderResult.ambiguous(result.diagnostic());
+            case RECOVERY_REQUIRED -> ProviderResult.recoveryRequired(result.diagnostic());
+            default -> ProviderResult.unavailable(result.error(), result.diagnostic());
+        };
+    }
+
+    private static ProviderCapabilities observedCapabilities(AccountRead account) {
+        if (account == null || !account.available()) {
+            return ProviderCapabilities.none();
+        }
+        boolean nativeReceipt = account.value() instanceof PixelmonNativeEconomyAccess;
+        boolean transactionBridge = account.bridge() != null;
+        boolean mutation = nativeReceipt || transactionBridge;
+        return new ProviderCapabilities(true, true, mutation, mutation, mutation, mutation);
+    }
+
     private AccountRead readAccount(UUID playerId) {
         if (!runtime.available()) {
             return AccountRead.unavailable(ProviderError.PROVIDER_EXCEPTION, runtime.diagnostic());
@@ -288,12 +362,22 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
                 return AccountRead.unavailable(ProviderError.PROVIDER_EXCEPTION,
                         "pixelmon account identity did not match player");
             }
-            BigDecimal balance = runtime.balance(account);
+            FinalEconomyTransactionBridgeAccess bridge = FinalEconomyTransactionBridgeAccess.discover(account);
+            BigDecimal balance;
+            if (bridge != null) {
+                ProviderResult<BigDecimal> bridgeBalance = bridge.balance(account, playerId);
+                if (!bridgeBalance.confirmed()) {
+                    return AccountRead.unavailable(bridgeBalance.error(), bridgeBalance.diagnostic());
+                }
+                balance = bridgeBalance.value().orElseThrow();
+            } else {
+                balance = runtime.balance(account);
+            }
             if (balance == null) {
                 return AccountRead.unavailable(ProviderError.PROVIDER_EXCEPTION,
                         "pixelmon balance is unavailable");
             }
-            return AccountRead.available(account, balance);
+            return AccountRead.available(account, balance, bridge);
         } catch (ReflectiveOperationException | RuntimeException exception) {
             return AccountRead.unavailable(ProviderError.PROVIDER_EXCEPTION,
                     "pixelmon economy query failed");
@@ -304,13 +388,15 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
         return balance.setScale(0, RoundingMode.UNNECESSARY).longValueExact();
     }
 
-    private record AccountRead(Object value, BigDecimal balance, ProviderError error, String diagnostic) {
-        static AccountRead available(Object value, BigDecimal balance) {
-            return new AccountRead(value, balance, ProviderError.NONE, "");
+    private record AccountRead(Object value, BigDecimal balance, ProviderError error, String diagnostic,
+                               FinalEconomyTransactionBridgeAccess bridge) {
+        static AccountRead available(Object value, BigDecimal balance,
+                                      FinalEconomyTransactionBridgeAccess bridge) {
+            return new AccountRead(value, balance, ProviderError.NONE, "", bridge);
         }
 
         static AccountRead unavailable(ProviderError error, String diagnostic) {
-            return new AccountRead(null, null, error, diagnostic);
+            return new AccountRead(null, null, error, diagnostic, null);
         }
 
         boolean available() {
