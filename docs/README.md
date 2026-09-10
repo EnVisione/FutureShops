@@ -1,6 +1,6 @@
 # Documentation index
 
-FutureShops documentation is organized by topic. The phase verification packet records the repository controlled evidence for the NeoForge 1.21.1 issue 22 correction.
+FutureShops documentation is organized by topic. The phase verification packets record repository controlled evidence for the NeoForge 1.21.1 line. The current 2.4.1 candidate remains unpublished while Phase 006 completes exact hybrid and client validation.
 
 ## General
 
@@ -70,3 +70,4 @@ FutureShops documentation is organized by topic. The phase verification packet r
 * [Phase 004 task 005 exact protocol decision](verification/phase-004/p004-task-005-2026-09-09.md)
 * [Phase 004 security review](verification/phase-004/security-review-2026-09-09.md)
 * [Phase 005 exact hybrid transaction evidence](verification/phase-005/p005-task-001-2026-09-09.md)
+* [Phase 006 candidate validation](verification/phase-006/p006-task-001-2026-09-10.md)

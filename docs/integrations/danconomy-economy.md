@@ -1,6 +1,6 @@
 # DanConomy economy integration
 
-FutureShops 2.3.0 for NeoForge 1.21.1 includes an optional adapter for exactly DanConomy 1.2.1. The FutureShops jar contains its own adapter and narrow mixin only. DanConomy remains a separately installed, unmodified runtime mod and is not copied, altered, rebuilt, or redistributed.
+FutureShops 2.4.1 for NeoForge 1.21.1 includes an optional adapter for exactly DanConomy 1.2.1. The FutureShops jar contains its own adapter and narrow mixin only. DanConomy remains a separately installed, unmodified runtime mod and is not copied, altered, rebuilt, or redistributed. The 2.4.1 artifact remains an unpublished candidate while final validation is open.
 
 ## Supported stack
 
@@ -9,7 +9,7 @@ FutureShops 2.3.0 for NeoForge 1.21.1 includes an optional adapter for exactly D
 | Minecraft | 1.21.1 |
 | NeoForge | 21.1.248 |
 | DanConomy | 1.2.1 |
-| FutureShops | 2.3.0 |
+| FutureShops | 2.4.1 |
 | Provider setting | `economy.provider = "danconomy"` |
 | Default currency | One explicit registered default |
 | Backing type | `LEDGER` |
@@ -44,7 +44,7 @@ Unknown schemas, malformed entries, invalid checksums, contradictory receipt fie
 
 ## Operations
 
-Install the exact DanConomy 1.2.1 jar and the same FutureShops 2.3.0 jar on the dedicated server and clients. Configure one explicit default `LEDGER` currency, set `economy.provider = "danconomy"`, and restart. A provider change does not migrate, mirror, seed, or erase balances.
+Install the exact DanConomy 1.2.1 jar and the same FutureShops 2.4.1 candidate jar on the dedicated server and clients. Configure one explicit default `LEDGER` currency, set `economy.provider = "danconomy"`, and restart. A provider change does not migrate, mirror, seed, or erase balances.
 
 Back up the complete world and `config/futureshops` together. The authoritative DanConomy balance and receipt image is `world/data/danconomy_ledger.dat`. Do not restore that file separately from the matching FutureShops journal, audit receipts, custody, claims, escrows, configuration, and mod set. Follow the [backup and restore runbook](../operations/backup-restore.md).
 

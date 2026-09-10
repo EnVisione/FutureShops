@@ -1,6 +1,6 @@
 # Pixelmon economy integration
 
-FutureShops 2.3.0 for NeoForge 1.21.1 includes an optional adapter for exactly Pixelmon 9.4.0. The adapter is bundled in the FutureShops jar as source and runtime class names only. Pixelmon is not a build dependency, is not copied into the jar, and is not required for standard client or dedicated server startup.
+FutureShops 2.4.1 for NeoForge 1.21.1 includes an optional adapter for exactly Pixelmon 9.4.0. The adapter is bundled in the FutureShops jar as source and runtime class names only. Pixelmon is not a build dependency, is not copied into the jar, and is not required for standard client or dedicated server startup. The 2.4.1 artifact remains an unpublished candidate while exact hybrid validation is open.
 
 ## Supported stack
 
@@ -11,7 +11,7 @@ The adapter accepts only the following runtime identity.
 | Minecraft | 1.21.1 |
 | NeoForge | 21.1.248 or a compatible 21.1 release supported by Pixelmon 9.4.0 |
 | Pixelmon | 9.4.0 |
-| FutureShops | 2.3.0 |
+| FutureShops | 2.4.1 |
 | Provider setting | `economy.provider = "pixelmon"` |
 
 Selection is restart only. A missing Pixelmon installation or any version other than `9.4.0` does not register the adapter. FutureShops keeps the configured identifier and reports the provider as missing on that start. It does not fall back to `internal` during the lifecycle.
@@ -42,7 +42,7 @@ Money items and ATM behavior remain internal provider features. They are inert w
 
 ## Installation and rollback
 
-Install Pixelmon 9.4.0 and FutureShops 2.3.0 on the server. The same FutureShops jar must be present on clients. Back up the complete world, `config/futureshops`, the FutureShops jar, and Pixelmon economy data before changing provider selection. Set the provider, stop the server, replace the configuration, and restart. A provider change never migrates internal balances.
+Install Pixelmon 9.4.0 and the FutureShops 2.4.1 candidate on the server. The same FutureShops jar must be present on clients. Back up the complete world, `config/futureshops`, the FutureShops jar, and Pixelmon economy data before changing provider selection. Set the provider, stop the server, replace the configuration, and restart. A provider change never migrates internal balances.
 
 To roll back, stop the server, restore the matching backup, set `economy.provider = "internal"`, and restart. Do not delete the FutureShops journal, custody, claims, escrow, or world data to force a provider change. If a Pixelmon query is unavailable, correct the exact installation or return to the matching internal backup. Never guess a refund from a local balance snapshot.
 
@@ -55,4 +55,4 @@ The reviewed Pixelmon artifact remained outside this repository and was used unc
 
 The exact API map and negative direct mutation classification are recorded in [Phase 002 Pixelmon API evidence](../verification/phase-002/pixelmon-api-2026-09-03.md). The native mixin, reload, retry, unknown-record recovery, Vault proof fixture, and headless debug procedure are recorded in [Phase 002 integration evidence](../verification/phase-002/p002-integration-evidence-2026-09-04.md). The exact SQLite backend and hybrid startup transaction are recorded in [exact hybrid Vault proof](../verification/phase-002/vault-hybrid-proof-2026-09-05.md). The available hybrid bridge stack is classified in the [Phase 002 bridge review](../verification/phase-002/bridge-review-2026-09-03.md). The owner authorized the exact disposable terms before both full launches, as recorded in the [Phase 002 runtime terms authorization](../verification/phase-002/runtime-terms-2026-09-03.md). The unmodified PixelmonEconomyBridge and FinalEconomy stack remains refused because it does not expose the required durable receipt and idempotent retry contract by itself. The exact bridge is a separately installed interoperability component and is not part of the FutureShops artifact.
 
-The current `2.3.0` development artifact reached readiness with the exact Pixelmon profile and with the exact hybrid stack. The [Phase 004 exact hybrid route evidence](../verification/phase-004/p004-task-005-2026-09-09.md) records the provider, bridge, receipt image, restart lookup, UUID conflict, and injected crash boundary results. The [Phase 000 Pixelmon environment verification](../verification/phase-000/p000-task-011-2026-09-04.md) records the native query and typed refusal, and the [Phase 000 hybrid environment verification](../verification/phase-000/p000-task-012-2026-09-04.md) records legacy stack startup and refusal without the transaction bridge. These runs used unmodified external jars and a disposable bridge component outside the FutureShops artifact.
+The current `2.4.1` development artifact passes the native Pixelmon 9.4.0 runtime and the headless common regression matrix. The [Phase 006 candidate validation](../verification/phase-006/p006-task-001-2026-09-10.md) records the candidate hashes, mixin application, and the remaining exact hybrid and client gates. The [Phase 005 exact hybrid transaction evidence](../verification/phase-005/p005-task-001-2026-09-09.md) records the prior bound bridge probe and is retained as historical evidence, not as fresh Phase 006 proof. The [Phase 000 Pixelmon environment verification](../verification/phase-000/p000-task-011-2026-09-04.md) records the native query and typed refusal, and the [Phase 000 hybrid environment verification](../verification/phase-000/p000-task-012-2026-09-04.md) records legacy stack startup and refusal without the transaction bridge. These runs used unmodified external jars and a disposable bridge component outside the FutureShops artifact.

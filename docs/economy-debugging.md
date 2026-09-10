@@ -40,4 +40,4 @@ Legacy records are classified as `LEGACY_COMPATIBLE`, `LEGACY_HYBRID_UNRESOLVED`
 
 Do not delete journals, receipts, custody, claims, account data, or world data to recover a transaction. Stop the server, preserve one complete matching snapshot, and inspect the original provider binding and receipt. An ambiguous external result is never replayed from a local log alone. Follow [backup and restore](operations/backup-restore.md) for restoration.
 
-Phase 004 captures server observable binding and diagnostic facts only. It makes no 2.4.1 release or production hybrid mutation claim. Client layout, input, and reconnect evidence remain a later validation gate.
+Phase 004 captures server observable binding and diagnostic facts only. The current 2.4.1 candidate has additional native Pixelmon and common GameTest evidence in the [Phase 006 validation packet](verification/phase-006/p006-task-001-2026-09-10.md), but it makes no final exact hybrid or client release claim until those gates pass. Client layout, input, and reconnect evidence remain a later validation gate.
