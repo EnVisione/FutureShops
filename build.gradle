@@ -27,6 +27,7 @@ def danconomyJarProperty = providers.gradleProperty('danconomyJar')
 def danconomyJarFile = danconomyJarProperty.map { new File(it).absoluteFile }
 def verificationGameDirectory = providers.gradleProperty('verificationGameDirectory')
 def danconomyCrashPoint = providers.gradleProperty('danconomyCrashPoint')
+def finalEconomyBridgeClasspathProperty = providers.gradleProperty('finalEconomyBridgeClasspath')
 def expectedDanconomySha256 = '61d3eb69a3a235929ac2376d151130e61ea4fe65c2f84990618c79e27e954b72'
 def verifyDanconomyCompileOnly = tasks.register('verifyDanconomyCompileOnly') {
     onlyIf { danconomyJarProperty.isPresent() }
@@ -76,6 +77,29 @@ tasks.register('vaultProofJar', Jar) {
     }
     from('src/test/fixtures/vault-proof') {
         exclude 'src/**'
+    }
+}
+
+def finalEconomyBridgeSources = fileTree('src/test/fixtures/finaleconomy-bridge/src') {
+    include '**/*.java'
+}
+def compileFinalEconomyBridgeFixture = tasks.register('compileFinalEconomyBridgeFixture', JavaCompile) {
+    onlyIf { finalEconomyBridgeClasspathProperty.isPresent() }
+    source finalEconomyBridgeSources
+    destinationDirectory = layout.buildDirectory.dir('finaleconomy-bridge/classes')
+    classpath = finalEconomyBridgeClasspathProperty.map { files(it.split(File.pathSeparator)) }.getOrElse(files())
+    options.release = 21
+}
+tasks.register('finalEconomyBridgeJar', Jar) {
+    onlyIf { finalEconomyBridgeClasspathProperty.isPresent() }
+    dependsOn compileFinalEconomyBridgeFixture
+    archiveFileName = 'futureshops-finaleconomy-bridge-1.0.0.jar'
+    destinationDirectory = layout.buildDirectory.dir('finaleconomy-bridge')
+    from(compileFinalEconomyBridgeFixture) {
+        exclude 'previous-compilation-data.bin'
+    }
+    from('src/test/fixtures/finaleconomy-bridge') {
+        include 'plugin.yml'
     }
 }
 
