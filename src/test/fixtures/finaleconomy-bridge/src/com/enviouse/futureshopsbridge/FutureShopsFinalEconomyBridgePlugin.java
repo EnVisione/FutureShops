@@ -27,6 +27,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
@@ -39,6 +40,7 @@ public final class FutureShopsFinalEconomyBridgePlugin extends JavaPlugin
     private static final String CURRENCY_ID = "PokéDollar";
     private static final String BACKEND_LINEAGE_PREFIX = "EverNifeCore:PlayerData:";
     private static final ReentrantLock LEDGER_LOCK = new ReentrantLock(true);
+    private static final Semaphore DISPATCH_SLOTS = new Semaphore(64, true);
     private static final Map<FEPlayerData, ReceiptAwareNumberWrapper> WRAPPERS = new ConcurrentHashMap<>();
     private static final Field ACCOUNT_PLAYER_DATA = field(
             "br.com.finalcraft.pixelmoneconomybridge.compat.v1_21_R1.reforged.finaleconomy.FEBankAccount",
@@ -113,10 +115,14 @@ public final class FutureShopsFinalEconomyBridgePlugin extends JavaPlugin
             return FutureShopsFinalEconomyBridgeService.rejected("INVALID_REQUEST", "request is invalid");
         }
         if (!Bukkit.isPrimaryThread()) {
+            if (!DISPATCH_SLOTS.tryAcquire()) {
+                return FutureShopsFinalEconomyBridgeService.unavailable(
+                        "FinalEconomy mutation dispatch queue is full");
+            }
             try {
                 Future<Map<String, Object>> future = Bukkit.getScheduler().callSyncMethod(this,
                         () -> mutateOnServerThread(account, actor, requestId, amount, kind));
-                return future.get(30L, TimeUnit.SECONDS);
+                return future.get(5L, TimeUnit.SECONDS);
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
                 return FutureShopsFinalEconomyBridgeService.unavailable(
@@ -127,6 +133,8 @@ public final class FutureShopsFinalEconomyBridgePlugin extends JavaPlugin
             } catch (ExecutionException exception) {
                 return FutureShopsFinalEconomyBridgeService.unavailable(
                         "FinalEconomy mutation dispatch failed");
+            } finally {
+                DISPATCH_SLOTS.release();
             }
         }
         return mutateOnServerThread(account, actor, requestId, amount, kind);
@@ -446,12 +454,16 @@ public final class FutureShopsFinalEconomyBridgePlugin extends JavaPlugin
         if (!(value instanceof Number number)) {
             throw new IllegalStateException("FinalEconomy receipt number is invalid");
         }
-        return number.longValue();
+        try {
+            return new BigDecimal(number.toString()).longValueExact();
+        } catch (ArithmeticException | NumberFormatException exception) {
+            throw new IllegalStateException("FinalEconomy receipt number is not an exact integer", exception);
+        }
     }
 
     private static long nextImageRevision(Config config) {
         Object value = config.getValue("FutureShops.image_revision");
-        long current = value instanceof Number number ? number.longValue() : 0L;
+        long current = value == null ? 0L : number(value);
         return Math.addExact(current, 1L);
     }
 
@@ -499,6 +511,7 @@ public final class FutureShopsFinalEconomyBridgePlugin extends JavaPlugin
             throw new IllegalStateException("FinalEconomy config has no parent directory");
         }
         try {
+            rejectSymlinkPath(path);
             Files.createDirectories(parent);
             Path temporary = Files.createTempFile(parent, path.getFileName().toString(), ".futureshops.tmp");
             try {
@@ -540,6 +553,14 @@ public final class FutureShopsFinalEconomyBridgePlugin extends JavaPlugin
             channel.force(true);
         } catch (UnsupportedOperationException exception) {
             throw new IOException("directory force is unsupported", exception);
+        }
+    }
+
+    private static void rejectSymlinkPath(Path path) {
+        for (Path cursor = path; cursor != null; cursor = cursor.getParent()) {
+            if (Files.isSymbolicLink(cursor)) {
+                throw new IllegalStateException("FinalEconomy config path contains a symbolic link");
+            }
         }
     }
 

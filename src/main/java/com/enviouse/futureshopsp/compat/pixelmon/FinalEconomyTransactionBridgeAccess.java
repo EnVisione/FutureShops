@@ -10,6 +10,7 @@ import com.enviouse.futureshopsp.api.economy.RequestId;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.Map;
 import java.util.OptionalLong;
 import java.util.UUID;
@@ -116,7 +117,7 @@ final class FinalEconomyTransactionBridgeAccess {
                     "finaleconomy bridge balance was not numeric");
         }
         try {
-            return ProviderResult.confirmed(BigDecimal.valueOf(number.doubleValue()));
+            return ProviderResult.confirmed(exactDecimal(number));
         } catch (RuntimeException exception) {
             return ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
                     "finaleconomy bridge balance was not exact");
@@ -144,7 +145,7 @@ final class FinalEconomyTransactionBridgeAccess {
             long amount = number(map.get("amount"), fallbackAmount);
             String externalId = text(map.get("external_operation_id"), "finaleconomy:" + requestId.value());
             OptionalLong resultingBalance = map.get("balance") instanceof Number number
-                    ? OptionalLong.of(number.longValue()) : OptionalLong.empty();
+                    ? OptionalLong.of(exactDecimal(number).longValueExact()) : OptionalLong.empty();
             return ProviderResult.confirmed(new MutationReceipt(requestId, kind, amount, externalId,
                     resultingBalance));
         } catch (RuntimeException exception) {
@@ -205,7 +206,23 @@ final class FinalEconomyTransactionBridgeAccess {
     }
 
     private static long number(Object value, long fallback) {
-        return value instanceof Number number ? number.longValue() : fallback;
+        return value == null ? fallback : exactDecimal(value).longValueExact();
+    }
+
+    private static BigDecimal exactDecimal(Object value) {
+        if (value instanceof BigDecimal decimal) {
+            return decimal;
+        }
+        if (value instanceof BigInteger integer) {
+            return new BigDecimal(integer);
+        }
+        if (value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long) {
+            return BigDecimal.valueOf(((Number) value).longValue());
+        }
+        if (value instanceof Number number) {
+            return new BigDecimal(number.toString());
+        }
+        throw new IllegalArgumentException("value is not numeric");
     }
 
     private static String text(Object value, String fallback) {
