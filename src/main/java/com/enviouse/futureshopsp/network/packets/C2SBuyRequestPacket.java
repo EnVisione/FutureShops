@@ -16,9 +16,14 @@ import java.util.List;
  * Client → server buy request.
  * Supports both single-item buys (detail screen) and cart checkout.
  */
-public record C2SBuyRequestPacket(String shopId, boolean cartCheckout, List<LineItem> lineItems) implements CustomPacketPayload {
+public record C2SBuyRequestPacket(String shopId, boolean cartCheckout, List<LineItem> lineItems,
+                                  long snapshotRevision) implements CustomPacketPayload {
     public static final Type<C2SBuyRequestPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(Futureshops.MODID, "c2sbuyrequestpacket"));
     public static final StreamCodec<RegistryFriendlyByteBuf, C2SBuyRequestPacket> STREAM_CODEC = StreamCodec.ofMember(C2SBuyRequestPacket::encode, C2SBuyRequestPacket::decode);
+
+    public C2SBuyRequestPacket(String shopId, boolean cartCheckout, List<LineItem> lineItems) {
+        this(shopId, cartCheckout, lineItems, 0L);
+    }
 
     @Override
     public Type<C2SBuyRequestPacket> type() {
@@ -43,17 +48,26 @@ public record C2SBuyRequestPacket(String shopId, boolean cartCheckout, List<Line
     }
 
     public static C2SBuyRequestPacket single(String shopId, String listingId, int quantity) {
-        return new C2SBuyRequestPacket(shopId, false, List.of(new LineItem(listingId, quantity)));
+        return single(shopId, listingId, quantity, 0L);
+    }
+
+    public static C2SBuyRequestPacket single(String shopId, String listingId, int quantity, long snapshotRevision) {
+        return new C2SBuyRequestPacket(shopId, false, List.of(new LineItem(listingId, quantity)), snapshotRevision);
     }
 
     public static C2SBuyRequestPacket cart(String shopId, List<LineItem> lineItems) {
-        return new C2SBuyRequestPacket(shopId, true, List.copyOf(lineItems));
+        return cart(shopId, lineItems, 0L);
+    }
+
+    public static C2SBuyRequestPacket cart(String shopId, List<LineItem> lineItems, long snapshotRevision) {
+        return new C2SBuyRequestPacket(shopId, true, List.copyOf(lineItems), snapshotRevision);
     }
 
     public static void encode(C2SBuyRequestPacket packet, FriendlyByteBuf buffer) {
         buffer.writeUtf(packet.shopId, 128);
         buffer.writeBoolean(packet.cartCheckout);
         buffer.writeCollection(packet.lineItems, LineItem::encode);
+        buffer.writeLong(packet.snapshotRevision);
     }
 
     /** Hard cap on cart line count. A real cart never exceeds a few dozen;
@@ -72,7 +86,7 @@ public record C2SBuyRequestPacket(String shopId, boolean cartCheckout, List<Line
         for (int i = 0; i < count; i++) {
             lines.add(LineItem.decode(buffer));
         }
-        return new C2SBuyRequestPacket(shopId, cartCheckout, lines);
+        return new C2SBuyRequestPacket(shopId, cartCheckout, lines, buffer.readLong());
     }
 
     public static void handle(C2SBuyRequestPacket packet, IPayloadContext context) {

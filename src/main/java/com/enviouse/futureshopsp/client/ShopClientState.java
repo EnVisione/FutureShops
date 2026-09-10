@@ -31,6 +31,9 @@ public final class ShopClientState {
     private static volatile String providerId = "internal";
     private static volatile String providerLifecycle = "READY";
     private static volatile String providerDiagnostic = "";
+    private static volatile long snapshotRevision = 0L;
+    private static volatile long lastResponseRevision = 0L;
+    private static volatile String lastResponseReason = "";
 
     // Catalog data — set by S2CShopDataPacket.
     private static volatile List<CatalogCategory> catalogCategories = List.of();
@@ -68,6 +71,21 @@ public final class ShopClientState {
                                      boolean adminEnabled, List<NearbyShopEntry> nearby,
                                      boolean balanceIsAvailable, String selectedProviderId,
                                      String selectedProviderLifecycle, String selectedProviderDiagnostic) {
+        applyShopData(shopId, balanceMinorUnits, currency, decimals, categories, items, promos, barterRecipes,
+                adminEnabled, nearby, balanceIsAvailable, selectedProviderId, selectedProviderLifecycle,
+                selectedProviderDiagnostic, 0L);
+    }
+
+    public static void applyShopData(String shopId, long balanceMinorUnits, String currency, int decimals,
+                                     List<CatalogCategory> categories, List<CatalogItem> items,
+                                     List<CatalogPromo> promos, List<CatalogBarterRecipe> barterRecipes,
+                                     boolean adminEnabled, List<NearbyShopEntry> nearby,
+                                     boolean balanceIsAvailable, String selectedProviderId,
+                                     String selectedProviderLifecycle, String selectedProviderDiagnostic,
+                                     long receivedSnapshotRevision) {
+        if (!acceptsSnapshot(shopId, receivedSnapshotRevision)) {
+            return;
+        }
         activeShopId = shopId;
         currentBalanceMinorUnits = balanceMinorUnits;
         currencyName = currency;
@@ -77,6 +95,7 @@ public final class ShopClientState {
         providerLifecycle = selectedProviderLifecycle == null || selectedProviderLifecycle.isBlank()
                 ? "UNRESOLVED" : selectedProviderLifecycle;
         providerDiagnostic = selectedProviderDiagnostic == null ? "" : selectedProviderDiagnostic;
+        snapshotRevision = Math.max(0L, receivedSnapshotRevision);
         catalogCategories = List.copyOf(categories);
         catalogItems = List.copyOf(items);
         catalogPromos = List.copyOf(promos);
@@ -101,6 +120,9 @@ public final class ShopClientState {
         providerId = "unknown";
         providerLifecycle = "UNRESOLVED";
         providerDiagnostic = "";
+        snapshotRevision = 0L;
+        lastResponseRevision = 0L;
+        lastResponseReason = "";
         catalogCategories = List.of();
         catalogItems = List.of();
         catalogPromos = List.of();
@@ -124,6 +146,27 @@ public final class ShopClientState {
 
     public static void setBalanceUnavailable() {
         balanceAvailable = false;
+    }
+
+    public static long getSnapshotRevision() {
+        return snapshotRevision;
+    }
+
+    public static boolean acceptsSnapshot(String shopId, long receivedSnapshotRevision) {
+        return shopId != null && (!shopId.equals(activeShopId) || receivedSnapshotRevision >= snapshotRevision);
+    }
+
+    public static void recordResponse(long serverRevision, String reason) {
+        lastResponseRevision = Math.max(0L, serverRevision);
+        lastResponseReason = reason == null ? "" : reason;
+    }
+
+    public static long getLastResponseRevision() {
+        return lastResponseRevision;
+    }
+
+    public static String getLastResponseReason() {
+        return lastResponseReason;
     }
 
     public static boolean isBalanceAvailable() {

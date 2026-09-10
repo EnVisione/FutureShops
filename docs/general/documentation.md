@@ -38,6 +38,8 @@ The public provider contract requires balance query, precheck, withdraw, deposit
 
 All server price, barter, bundle, buyback, and physical money value totals use checked integer arithmetic. Catalog or listing overflow returns an invalid result before a provider or item effect. Transaction event listeners may adjust a price, but every override is revalidated and buy cart totals are recomputed with checked addition before debit admission.
 
+Shop payload protocol version 26 carries a monotonic catalog `snapshot_revision`. Clients echo that value on buy, cart, and sell requests. The server rejects stale revisions before mutation with typed `STALE_REQUEST` and `response_reason=stale_snapshot`, then sends a silent authoritative refresh. Older catalog payloads are ignored on the client. Support evidence records the received revision, request revision, response reason, and refreshed revision.
+
 ## Durable records
 
 `EconomyJournalSavedData` stores versioned, checksummed request and outcome records under `futureshops_economy_journal`, bounded to 10,000 records. It stores no external balance field. An oversized journal is a read only integrity blocker, and appends stop at the same limit. `EconomyCustodySavedData` stores bounded item identity, owner, quantity, content hash, and `HELD`, `DELIVERED`, `CLAIMED`, or `RELEASED` state under `futureshops_economy_custody`. `EconomyClaimSavedData` stores claimant, exact amount, description, and non expiring `PENDING`, `DELIVERED`, or `RESOLVED` state under `futureshops_economy_claims`.

@@ -16,7 +16,8 @@ import net.minecraft.server.level.ServerPlayer;
  * key; the server resolves the exact listing by it, then counts/removes from the player using that
  * listing's registry itemId + NBT.
  */
-public record C2SSellRequestPacket(String shopId, String listingId, int quantity) implements CustomPacketPayload {
+public record C2SSellRequestPacket(String shopId, String listingId, int quantity,
+                                   long snapshotRevision) implements CustomPacketPayload {
     public static final Type<C2SSellRequestPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(Futureshops.MODID, "c2ssellrequestpacket"));
     public static final StreamCodec<RegistryFriendlyByteBuf, C2SSellRequestPacket> STREAM_CODEC = StreamCodec.ofMember(C2SSellRequestPacket::encode, C2SSellRequestPacket::decode);
 
@@ -25,14 +26,19 @@ public record C2SSellRequestPacket(String shopId, String listingId, int quantity
         return TYPE;
     }
 
+    public C2SSellRequestPacket(String shopId, String listingId, int quantity) {
+        this(shopId, listingId, quantity, 0L);
+    }
+
     public static void encode(C2SSellRequestPacket packet, FriendlyByteBuf buffer) {
         buffer.writeUtf(packet.shopId, 128);
         buffer.writeUtf(packet.listingId, 128);
         buffer.writeVarInt(packet.quantity);
+        buffer.writeLong(packet.snapshotRevision);
     }
 
     public static C2SSellRequestPacket decode(FriendlyByteBuf buffer) {
-        return new C2SSellRequestPacket(buffer.readUtf(128), buffer.readUtf(128), buffer.readVarInt());
+        return new C2SSellRequestPacket(buffer.readUtf(128), buffer.readUtf(128), buffer.readVarInt(), buffer.readLong());
     }
 
     public static void handle(C2SSellRequestPacket packet, IPayloadContext context) {

@@ -54,7 +54,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
  */
 @EventBusSubscriber(modid = Futureshops.MODID, bus = EventBusSubscriber.Bus.MOD)
 public final class ShopPackets {
-    public static final String PROTOCOL_VERSION = "25";
+    public static final String PROTOCOL_VERSION = "26";
 
     private ShopPackets() {
     }

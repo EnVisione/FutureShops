@@ -23,13 +23,15 @@ public record S2CBuyResponsePacket(
         long resultingBalanceMinorUnits,
         int totalQuantity,
         long totalMinorUnits,
-        boolean balanceAvailable) implements CustomPacketPayload {
+        boolean balanceAvailable,
+        long snapshotRevision,
+        String responseReason) implements CustomPacketPayload {
     public static final Type<S2CBuyResponsePacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(Futureshops.MODID, "s2cbuyresponsepacket"));
     public static final StreamCodec<RegistryFriendlyByteBuf, S2CBuyResponsePacket> STREAM_CODEC = StreamCodec.ofMember(S2CBuyResponsePacket::encode, S2CBuyResponsePacket::decode);
 
     public S2CBuyResponsePacket(boolean success, boolean cartCheckout, String shopId, ShopResultCode errorCode,
                                 long resultingBalanceMinorUnits, int totalQuantity, long totalMinorUnits) {
-        this(success, cartCheckout, shopId, errorCode, resultingBalanceMinorUnits, totalQuantity, totalMinorUnits, true);
+        this(success, cartCheckout, shopId, errorCode, resultingBalanceMinorUnits, totalQuantity, totalMinorUnits, true, 0L, "");
     }
 
     @Override
@@ -48,6 +50,8 @@ public record S2CBuyResponsePacket(
         buffer.writeVarInt(packet.totalQuantity);
         buffer.writeLong(packet.totalMinorUnits);
         buffer.writeBoolean(packet.balanceAvailable);
+        buffer.writeLong(packet.snapshotRevision);
+        buffer.writeUtf(packet.responseReason, 64);
     }
 
     public static S2CBuyResponsePacket decode(FriendlyByteBuf buffer) {
@@ -65,11 +69,13 @@ public record S2CBuyResponsePacket(
         int totalQty = buffer.readVarInt();
         long totalMu = buffer.readLong();
         boolean balanceAvailable = buffer.readBoolean();
-        return new S2CBuyResponsePacket(success, cartCheckout, shopId, code, bal, totalQty, totalMu, balanceAvailable);
+        long snapshotRevision = buffer.readLong();
+        String responseReason = buffer.readUtf(64);
+        return new S2CBuyResponsePacket(success, cartCheckout, shopId, code, bal, totalQty, totalMu, balanceAvailable,
+                snapshotRevision, responseReason);
     }
 
     public static void handle(S2CBuyResponsePacket packet, IPayloadContext context) {
         context.enqueueWork(() -> ShopClientPacketHandler.handleBuyResponse(packet));
     }
 }
-

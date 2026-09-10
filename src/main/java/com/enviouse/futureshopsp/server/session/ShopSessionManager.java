@@ -47,6 +47,22 @@ public final class ShopSessionManager {
         return Optional.ofNullable(SESSIONS.get(playerUUID));
     }
 
+    /** Advances the authoritative catalog revision for an active shop session. */
+    public static long advanceSnapshotRevision(UUID playerUUID, String shopId) {
+        final long[] result = {0L};
+        SESSIONS.computeIfPresent(playerUUID, (uuid, current) -> {
+            if (!current.shopId().equals(shopId)) {
+                result[0] = current.snapshotRevision();
+                return current;
+            }
+            long next = current.snapshotRevision() == Long.MAX_VALUE
+                    ? Long.MAX_VALUE : current.snapshotRevision() + 1L;
+            result[0] = next;
+            return current.withSnapshotRevision(next);
+        });
+        return result[0];
+    }
+
     public static Map<UUID, ShopSession> snapshotSessions() {
         return Map.copyOf(new HashMap<>(SESSIONS));
     }

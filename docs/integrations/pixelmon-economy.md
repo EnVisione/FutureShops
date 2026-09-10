@@ -2,6 +2,8 @@
 
 FutureShops 2.4.1 for NeoForge 1.21.1 includes an optional adapter for exactly Pixelmon 9.4.0. The adapter is bundled in the FutureShops jar as source and runtime class names only. Pixelmon is not a build dependency, is not copied into the jar, and is not required for standard client or dedicated server startup. The 2.4.1 artifact remains an unpublished candidate while Phase 006 completes its remaining stale snapshot, support, and integration gates.
 
+The shop payload protocol uses monotonic `snapshot_revision` values. Buy, cart, and sell requests must echo the revision received from the server. A changed catalog produces a typed `STALE_REQUEST` with `response_reason=stale_snapshot` before the Pixelmon provider or inventory is touched, followed by a silent authoritative refresh.
+
 ## Supported stack
 
 The adapter accepts only the following runtime identity.
