@@ -3,6 +3,8 @@ package com.enviouse.futureshopsp.server.economy;
 import com.enviouse.futureshopsp.api.economy.MutationReceipt;
 import com.enviouse.futureshopsp.api.economy.MutationRequest;
 import com.enviouse.futureshopsp.api.economy.MutationKind;
+import com.enviouse.futureshopsp.api.economy.AccountBindingCodecV1;
+import com.enviouse.futureshopsp.api.economy.PersistedAccountBindingV1;
 import com.enviouse.futureshopsp.api.economy.ProviderResultStatus;
 import com.enviouse.futureshopsp.api.economy.RequestId;
 import com.enviouse.futureshopsp.server.SavedDataMigrations;
@@ -70,7 +72,7 @@ public final class EconomyJournalSavedData extends SavedData implements EconomyT
                 continue;
             }
             try {
-                EconomyJournalRecord record = readEntry(entry);
+                EconomyJournalRecord record = readEntry(entry, version);
                 if (loaded.put(record.request().requestId(), record) != null) {
                     data.integrityValid = false;
                 }
@@ -149,7 +151,7 @@ public final class EconomyJournalSavedData extends SavedData implements EconomyT
         setDirty();
     }
 
-    private static EconomyJournalRecord readEntry(CompoundTag entry) {
+    private static EconomyJournalRecord readEntry(CompoundTag entry, int version) {
         if (!entry.hasUUID("request") || !entry.hasUUID("actor")
                 || !entry.contains("amount", Tag.TAG_LONG) || !entry.contains("kind", Tag.TAG_STRING)
                 || !entry.contains("state", Tag.TAG_STRING) || !entry.contains("status", Tag.TAG_STRING)
@@ -166,6 +168,10 @@ public final class EconomyJournalSavedData extends SavedData implements EconomyT
         EconomyTransactionState state = EconomyTransactionState.valueOf(entry.getString("state"));
         ProviderResultStatus status = ProviderResultStatus.valueOf(entry.getString("status"));
         String diagnostic = entry.getString("diagnostic");
+        Optional<PersistedAccountBindingV1> binding = Optional.empty();
+        if (entry.contains("binding", Tag.TAG_STRING)) {
+            binding = Optional.of(AccountBindingCodecV1.decode(entry.getString("binding")));
+        }
         Optional<MutationReceipt> receipt = Optional.empty();
         if (entry.hasUUID("receiptRequest") && entry.contains("receiptAmount", Tag.TAG_LONG)
                 && entry.contains("receiptKind", Tag.TAG_STRING)
@@ -176,9 +182,13 @@ public final class EconomyJournalSavedData extends SavedData implements EconomyT
                     MutationKind.valueOf(entry.getString("receiptKind")), entry.getLong("receiptAmount"),
                     entry.getString("operation"), resulting));
         }
-        String expectedChecksum = hasProvider
-                ? checksum(request, state, receipt, status, diagnostic, providerId)
-                : legacyChecksum(request, state, receipt, status, diagnostic);
+        EconomyJournalRecord record = new EconomyJournalRecord(request, state, receipt, status, diagnostic,
+                providerId, binding);
+        String expectedChecksum = version < CURRENT_VERSION && binding.isEmpty()
+                ? hasProvider
+                ? legacyProviderChecksum(request, state, receipt, status, diagnostic, providerId)
+                : legacyChecksum(request, state, receipt, status, diagnostic)
+                : checksum(record);
         if (!entry.getString("checksum").equals(expectedChecksum)) {
             throw new IllegalArgumentException("journal record checksum mismatch");
         }
@@ -188,7 +198,7 @@ public final class EconomyJournalSavedData extends SavedData implements EconomyT
         if ((status == ProviderResultStatus.CONFIRMED) != receipt.isPresent()) {
             throw new IllegalArgumentException("journal confirmed status and receipt disagree");
         }
-        return new EconomyJournalRecord(request, state, receipt, status, diagnostic, providerId);
+        return record;
     }
 
     private static boolean validReceipt(MutationRequest request, MutationReceipt receipt) {
@@ -212,6 +222,7 @@ public final class EconomyJournalSavedData extends SavedData implements EconomyT
         if (!record.providerId().isBlank()) {
             entry.putString("provider", record.providerId());
         }
+        record.binding().ifPresent(value -> entry.putString("binding", AccountBindingCodecV1.encode(value)));
         record.receipt().ifPresent(receipt -> {
             entry.putUUID("receiptRequest", receipt.requestId().value());
             entry.putString("receiptKind", receipt.kind().name());
@@ -221,9 +232,12 @@ public final class EconomyJournalSavedData extends SavedData implements EconomyT
                 entry.putLong("resultingBalance", receipt.resultingBalanceMinorUnits().getAsLong());
             }
         });
-        entry.putString("checksum", checksum(request, record.state(), record.receipt(),
-                record.resultStatus(), record.diagnostic(), record.providerId()));
+        entry.putString("checksum", checksum(record));
         return entry;
+    }
+
+    private static String checksum(EconomyJournalRecord record) {
+        return EconomyRecordChecksum.sha256(ReceiptAuditValidation.canonical(record));
     }
 
     private static String checksum(MutationRequest request, EconomyTransactionState state,
@@ -243,6 +257,12 @@ public final class EconomyJournalSavedData extends SavedData implements EconomyT
                 .append(value.resultingBalanceMinorUnits().isPresent()
                         ? Long.toString(value.resultingBalanceMinorUnits().getAsLong()) : ""));
         return digest(canonical.toString());
+    }
+
+    private static String legacyProviderChecksum(MutationRequest request, EconomyTransactionState state,
+                                                 Optional<MutationReceipt> receipt, ProviderResultStatus status,
+                                                 String diagnostic, String providerId) {
+        return checksum(request, state, receipt, status, diagnostic, providerId);
     }
 
     private static String legacyChecksum(MutationRequest request, EconomyTransactionState state,

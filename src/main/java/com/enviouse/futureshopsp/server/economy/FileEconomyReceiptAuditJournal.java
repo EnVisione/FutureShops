@@ -3,6 +3,8 @@ package com.enviouse.futureshopsp.server.economy;
 import com.enviouse.futureshopsp.api.economy.MutationKind;
 import com.enviouse.futureshopsp.api.economy.MutationReceipt;
 import com.enviouse.futureshopsp.api.economy.MutationRequest;
+import com.enviouse.futureshopsp.api.economy.AccountBindingCodecV1;
+import com.enviouse.futureshopsp.api.economy.PersistedAccountBindingV1;
 import com.enviouse.futureshopsp.api.economy.ProviderResultStatus;
 import com.enviouse.futureshopsp.api.economy.RequestId;
 
@@ -37,7 +39,7 @@ public final class FileEconomyReceiptAuditJournal implements EconomyReceiptAudit
     private static final Pattern ENTRY_NAME = Pattern.compile("receipt-(\\d{1,20})\\.properties");
     private static final Set<String> ENTRY_KEYS = Set.of(
             "version", "request", "actor", "counterparty", "amount", "kind", "state", "status",
-            "provider", "diagnostic", "receiptRequest", "receiptKind", "receiptAmount", "operation",
+            "provider", "diagnostic", "binding", "receiptRequest", "receiptKind", "receiptAmount", "operation",
             "resultingBalance", "checksum");
 
     private final Path directory;
@@ -248,7 +250,7 @@ public final class FileEconomyReceiptAuditJournal implements EconomyReceiptAudit
             throw new IOException("receipt audit record fields are invalid");
         }
         int version = Integer.parseInt(properties.getProperty("version"));
-        if (version != CURRENT_VERSION) {
+        if (version < 1 || version > CURRENT_VERSION) {
             throw new IOException("receipt audit record version is unsupported");
         }
         RequestId requestId = new RequestId(UUID.fromString(properties.getProperty("request")));
@@ -259,6 +261,9 @@ public final class FileEconomyReceiptAuditJournal implements EconomyReceiptAudit
         ProviderResultStatus status = ProviderResultStatus.valueOf(properties.getProperty("status"));
         String provider = properties.getProperty("provider");
         String diagnostic = properties.getProperty("diagnostic");
+        java.util.Optional<PersistedAccountBindingV1> binding = properties.containsKey("binding")
+                ? java.util.Optional.of(AccountBindingCodecV1.decode(properties.getProperty("binding")))
+                : java.util.Optional.empty();
         MutationReceipt receipt = null;
         boolean anyReceipt = properties.stringPropertyNames().stream().anyMatch(key -> key.startsWith("receipt") || key.equals("operation"));
         if (anyReceipt) {
@@ -273,8 +278,10 @@ public final class FileEconomyReceiptAuditJournal implements EconomyReceiptAudit
                             : java.util.OptionalLong.empty());
         }
         EconomyJournalRecord record = new EconomyJournalRecord(request, state,
-                java.util.Optional.ofNullable(receipt), status, diagnostic, provider);
-        if (!properties.getProperty("checksum").equals(checksum(record)) || !ReceiptAuditValidation.valid(record)) {
+                java.util.Optional.ofNullable(receipt), status, diagnostic, provider, binding);
+        String expectedChecksum = version < CURRENT_VERSION && binding.isEmpty()
+                ? legacyChecksum(record) : checksum(record);
+        if (!properties.getProperty("checksum").equals(expectedChecksum) || !ReceiptAuditValidation.valid(record)) {
             throw new IOException("receipt audit checksum is invalid");
         }
         return record;
@@ -293,6 +300,7 @@ public final class FileEconomyReceiptAuditJournal implements EconomyReceiptAudit
         properties.setProperty("status", record.resultStatus().name());
         properties.setProperty("provider", record.providerId());
         properties.setProperty("diagnostic", record.diagnostic());
+        record.binding().ifPresent(value -> properties.setProperty("binding", AccountBindingCodecV1.encode(value)));
         record.receipt().ifPresent(receipt -> {
             properties.setProperty("receiptRequest", receipt.requestId().value().toString());
             properties.setProperty("receiptKind", receipt.kind().name());
@@ -377,5 +385,26 @@ public final class FileEconomyReceiptAuditJournal implements EconomyReceiptAudit
 
     private static String checksum(EconomyJournalRecord record) {
         return EconomyRecordChecksum.sha256(ReceiptAuditValidation.canonical(record));
+    }
+
+    private static String legacyChecksum(EconomyJournalRecord record) {
+        MutationRequest request = record.request();
+        StringBuilder canonical = new StringBuilder()
+                .append(request.requestId().value()).append('|')
+                .append(request.actor()).append('|')
+                .append(request.counterparty().map(Object::toString).orElse("")).append('|')
+                .append(request.amountMinorUnits()).append('|')
+                .append(request.kind()).append('|')
+                .append(record.state()).append('|')
+                .append(record.resultStatus()).append('|')
+                .append(record.providerId()).append('|')
+                .append(record.diagnostic()).append('|');
+        record.receipt().ifPresent(receipt -> canonical.append(receipt.requestId().value()).append('|')
+                .append(receipt.kind()).append('|')
+                .append(receipt.amountMinorUnits()).append('|')
+                .append(receipt.externalOperationId()).append('|')
+                .append(receipt.resultingBalanceMinorUnits().isPresent()
+                        ? receipt.resultingBalanceMinorUnits().getAsLong() : ""));
+        return EconomyRecordChecksum.sha256(canonical.toString());
     }
 }

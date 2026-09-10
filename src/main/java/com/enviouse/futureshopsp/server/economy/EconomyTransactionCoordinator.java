@@ -2,6 +2,7 @@ package com.enviouse.futureshopsp.server.economy;
 
 import com.enviouse.futureshopsp.api.economy.BalanceSnapshot;
 import com.enviouse.futureshopsp.api.economy.BoundEconomyOperationV1;
+import com.enviouse.futureshopsp.api.economy.BoundEconomyProvider;
 import com.enviouse.futureshopsp.api.economy.EconomyCapability;
 import com.enviouse.futureshopsp.api.economy.EconomyProvider;
 import com.enviouse.futureshopsp.api.economy.MutationKind;
@@ -148,7 +149,7 @@ public final class EconomyTransactionCoordinator {
             if (bindingResult != null) {
                 return bindingResult;
             }
-            return preflightInternal(operation.request());
+            return preflightInternal(operation.request(), true);
         }
     }
 
@@ -185,6 +186,9 @@ public final class EconomyTransactionCoordinator {
                 return copyFailure(bindingResult);
             }
             try {
+                if (provider instanceof BoundEconomyProvider boundProvider) {
+                    return boundProvider.lookup(operation);
+                }
                 return provider.lookup(operation.request());
             } catch (RuntimeException exception) {
                 return ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
@@ -201,6 +205,9 @@ public final class EconomyTransactionCoordinator {
                 return copyFailure(bindingResult);
             }
             try {
+                if (provider instanceof BoundEconomyProvider boundProvider) {
+                    return boundProvider.retry(operation);
+                }
                 return provider.retry(operation.request());
             } catch (RuntimeException exception) {
                 return ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
@@ -393,6 +400,10 @@ public final class EconomyTransactionCoordinator {
                 return journalFailure("transaction journal lookup failed");
             }
             if (existing != null) {
+                ProviderResult<BoundEconomyOperationV1> bindingResult = restoreBinding(existing);
+                if (bindingResult != null && !bindingResult.confirmed()) {
+                    return copyFailure(bindingResult);
+                }
                 if (!providerMatches(existing)) {
                     lifecycle.markAmbiguous("transaction is bound to another provider");
                     return ProviderResult.recoveryRequired("transaction provider binding requires recovery");
@@ -525,12 +536,17 @@ public final class EconomyTransactionCoordinator {
             if (record == null) {
                 return ProviderResult.rejected(ProviderError.RECEIPT_NOT_FOUND, "transaction is not journaled");
             }
+            ProviderResult<BoundEconomyOperationV1> bindingResult = restoreBinding(record);
+            if (bindingResult != null && !bindingResult.confirmed()) {
+                return copyFailure(bindingResult);
+            }
             if (!providerMatches(record)) {
                 lifecycle.markAmbiguous("transaction is bound to another provider");
                 return ProviderResult.recoveryRequired("transaction provider binding requires recovery");
             }
             if (LegacyBindingClassifier.classify(record)
                     == com.enviouse.futureshopsp.api.economy.LegacyBindingClassification.LEGACY_HYBRID_UNRESOLVED
+                    && record.binding().isEmpty()
                     && !bindings.containsKey(requestId)) {
                 lifecycle.markAmbiguous("legacy hybrid account binding is unresolved");
                 return ProviderResult.recoveryRequired("legacy hybrid account binding requires original proof");
@@ -557,7 +573,7 @@ public final class EconomyTransactionCoordinator {
             }
             ProviderResult<MutationReceipt> lookup;
             try {
-                lookup = provider.lookup(record.request());
+                lookup = lookupForRecord(record);
             } catch (RuntimeException exception) {
                 return markUncertainOrFreeze(record, "receipt lookup failed");
             }
@@ -583,7 +599,7 @@ public final class EconomyTransactionCoordinator {
                     && supports(EconomyCapability.IDEMPOTENT_RETRY)) {
                 ProviderResult<MutationReceipt> retry;
                 try {
-                    retry = provider.retry(record.request());
+                    retry = retryForRecord(record);
                 } catch (RuntimeException exception) {
                     return markUncertainOrFreeze(record, "idempotent provider retry failed");
                 }
@@ -645,6 +661,10 @@ public final class EconomyTransactionCoordinator {
                 return journalFailure("transaction journal lookup failed");
             }
             if (existing != null) {
+                ProviderResult<BoundEconomyOperationV1> bindingResult = restoreBinding(existing);
+                if (bindingResult != null && !bindingResult.confirmed()) {
+                    return copyFailure(bindingResult);
+                }
                 if (!providerMatches(existing)) {
                     lifecycle.markAmbiguous("transaction is bound to another provider");
                     return ProviderResult.recoveryRequired("transaction provider binding requires recovery");
@@ -675,6 +695,7 @@ public final class EconomyTransactionCoordinator {
         EconomyJournalRecord pending = new EconomyJournalRecord(request,
                 EconomyTransactionState.EXTERNAL_PENDING, Optional.empty(), ProviderResultStatus.UNAVAILABLE, "",
                 provider.providerId());
+        pending = attachBinding(pending);
         try {
             journal.replace(pending);
             if (!journal.flush()) {
@@ -690,9 +711,7 @@ public final class EconomyTransactionCoordinator {
 
         ProviderResult<MutationReceipt> result;
         try {
-            result = expectedKind == MutationKind.DEPOSIT || expectedKind == MutationKind.TRANSFER_CREDIT
-                    || expectedKind == MutationKind.REFUND || expectedKind == MutationKind.COMPENSATION
-                    ? provider.deposit(request) : provider.withdraw(request);
+            result = mutateForRequest(request, expectedKind);
         } catch (RuntimeException exception) {
             return ambiguous(pending, "provider mutation failed after pending state");
         }
@@ -743,6 +762,19 @@ public final class EconomyTransactionCoordinator {
     }
 
     private ProviderResult<BalanceSnapshot> preflightInternal(MutationRequest request) {
+        return preflightInternal(request, false);
+    }
+
+    private ProviderResult<BalanceSnapshot> preflightInternal(MutationRequest request, boolean bindingValidated) {
+        if (!bindingValidated) {
+            ProviderResult<BoundEconomyOperationV1> bindingResult = ensureBinding(request);
+            if (bindingResult != null) {
+                if (!bindingResult.confirmed()) {
+                    return bindingFailure(bindingResult);
+                }
+                return preflightInternal(request, true);
+            }
+        }
         EconomyLifecycleSnapshot state = lifecycle.snapshot();
         if (!state.acceptsMutations()) {
             if (state.lifecycle() == ProviderLifecycle.RECOVERING || state.lifecycle() == ProviderLifecycle.FROZEN) {
@@ -762,7 +794,9 @@ public final class EconomyTransactionCoordinator {
         }
         ProviderResult<BalanceSnapshot> precheck;
         try {
-            precheck = provider.precheck(request);
+            BoundEconomyOperationV1 bound = bindings.get(request.requestId());
+            precheck = provider instanceof BoundEconomyProvider boundProvider && bound != null
+                    ? boundProvider.precheck(bound) : provider.precheck(request);
         } catch (RuntimeException exception) {
             lifecycle.markFailed("provider precheck failed");
             return ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION, "provider precheck failed");
@@ -896,7 +930,8 @@ public final class EconomyTransactionCoordinator {
     private void replace(EconomyJournalRecord source, EconomyTransactionState state,
                          Optional<MutationReceipt> receipt, ProviderResultStatus status, String diagnostic) {
         EconomyJournalRecord updated = new EconomyJournalRecord(source.request(), state, receipt, status, diagnostic,
-                source.providerId().isBlank() ? provider.providerId() : source.providerId());
+                source.providerId().isBlank() ? provider.providerId() : source.providerId(), source.binding());
+        updated = attachBinding(updated);
         journal.replace(updated);
         if (!journal.flush()) {
             throw new IllegalStateException("transaction journal flush failed");
@@ -911,17 +946,142 @@ public final class EconomyTransactionCoordinator {
     }
 
     private void append(EconomyJournalRecord record) {
-        journal.append(record);
+        EconomyJournalRecord boundRecord = attachBinding(record);
+        journal.append(boundRecord);
         if (!journal.flush()) {
             throw new IllegalStateException("transaction journal flush failed");
         }
-        receiptAudit.append(record);
+        receiptAudit.append(boundRecord);
         if (!receiptAudit.flush()) {
             throw new IllegalStateException("receipt audit flush failed");
         }
-        DebugDiagnostics.transaction(DebugModule.RECEIPT, "economy", "journal_append", record.request(), null,
-                provider.capabilities(), null, record.state().name(), record.resultStatus().name(), "unknown", "unknown",
+        DebugDiagnostics.transaction(DebugModule.RECEIPT, "economy", "journal_append", boundRecord.request(), null,
+                provider.capabilities(), null, boundRecord.state().name(), boundRecord.resultStatus().name(), "unknown", "unknown",
                 "continue with the recorded state");
+    }
+
+    private ProviderResult<BoundEconomyOperationV1> ensureBinding(MutationRequest request) {
+        if (!(provider instanceof BoundEconomyProvider boundProvider)) {
+            return null;
+        }
+        BoundEconomyOperationV1 existing = bindings.get(request.requestId());
+        if (existing != null) {
+            return requestMatches(existing.request(), request)
+                    ? ProviderResult.confirmed(existing)
+                    : ProviderResult.rejected(ProviderError.REQUEST_CONFLICT,
+                    "bound operation request identity changed");
+        }
+        ProviderResult<BoundEconomyOperationV1> result;
+        try {
+            result = boundProvider.bind(OperationRequest.from(request),
+                    new RequiredCapabilities(requiredCapabilities(request.kind())));
+        } catch (RuntimeException exception) {
+            return ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
+                    "provider account binding failed");
+        }
+        if (result == null || !result.confirmed() || result.value().isEmpty()) {
+            return result == null ? ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
+                    "provider returned no account binding") : result;
+        }
+        try {
+            return ProviderResult.confirmed(bind(result.value().orElseThrow()));
+        } catch (RuntimeException exception) {
+            return ProviderResult.rejected(ProviderError.BINDING_CHANGED,
+                    "provider account binding conflicted with an existing request");
+        }
+    }
+
+    private ProviderResult<BoundEconomyOperationV1> restoreBinding(EconomyJournalRecord record) {
+        if (!(provider instanceof BoundEconomyProvider boundProvider)) {
+            return record.binding().isEmpty() ? null : ProviderResult.rejected(ProviderError.CAPABILITY_MISSING,
+                    "persisted account binding has no compatible provider");
+        }
+        if (record.binding().isEmpty()) {
+            return null;
+        }
+        BoundEconomyOperationV1 existing = bindings.get(record.request().requestId());
+        if (existing != null) {
+            return existing.persistedBinding().equals(record.binding().orElseThrow())
+                    ? ProviderResult.confirmed(existing)
+                    : ProviderResult.rejected(ProviderError.BINDING_CHANGED,
+                    "persisted account binding conflicts with the current request");
+        }
+        ProviderResult<BoundEconomyOperationV1> result;
+        try {
+            result = boundProvider.bind(OperationRequest.from(record.request()),
+                    new RequiredCapabilities(requiredCapabilities(record.request().kind())));
+        } catch (RuntimeException exception) {
+            return ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
+                    "persisted account binding could not be revalidated");
+        }
+        if (result == null || !result.confirmed() || result.value().isEmpty()) {
+            return result == null ? ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
+                    "provider returned no restored account binding") : result;
+        }
+        BoundEconomyOperationV1 rebound = result.value().orElseThrow();
+        if (!rebound.persistedBinding().equals(record.binding().orElseThrow())) {
+            return ProviderResult.rejected(ProviderError.BINDING_CHANGED,
+                    "persisted account binding does not match the live account");
+        }
+        try {
+            return ProviderResult.confirmed(bind(rebound));
+        } catch (RuntimeException exception) {
+            return ProviderResult.rejected(ProviderError.BINDING_CHANGED,
+                    "restored account binding conflicted with the request");
+        }
+    }
+
+    private ProviderResult<MutationReceipt> mutateForRequest(MutationRequest request, MutationKind expectedKind) {
+        if (provider instanceof BoundEconomyProvider boundProvider) {
+            BoundEconomyOperationV1 bound = bindings.get(request.requestId());
+            if (bound == null) {
+                return ProviderResult.recoveryRequired("bound account is missing before provider mutation");
+            }
+            return boundProvider.mutate(bound, request);
+        }
+        return expectedKind == MutationKind.DEPOSIT || expectedKind == MutationKind.TRANSFER_CREDIT
+                || expectedKind == MutationKind.REFUND || expectedKind == MutationKind.COMPENSATION
+                ? provider.deposit(request) : provider.withdraw(request);
+    }
+
+    private ProviderResult<MutationReceipt> lookupForRecord(EconomyJournalRecord record) {
+        if (provider instanceof BoundEconomyProvider boundProvider) {
+            ProviderResult<BoundEconomyOperationV1> restored = restoreBinding(record);
+            if (restored == null || !restored.confirmed()) {
+                return restored == null ? ProviderResult.recoveryRequired(
+                        "bound account receipt lookup requires persisted binding") : copyFailure(restored);
+            }
+            return boundProvider.lookup(restored.value().orElseThrow());
+        }
+        return provider.lookup(record.request());
+    }
+
+    private ProviderResult<MutationReceipt> retryForRecord(EconomyJournalRecord record) {
+        if (provider instanceof BoundEconomyProvider boundProvider) {
+            ProviderResult<BoundEconomyOperationV1> restored = restoreBinding(record);
+            if (restored == null || !restored.confirmed()) {
+                return restored == null ? ProviderResult.recoveryRequired(
+                        "bound account receipt retry requires persisted binding") : copyFailure(restored);
+            }
+            return boundProvider.retry(restored.value().orElseThrow());
+        }
+        return provider.retry(record.request());
+    }
+
+    private static ProviderCapabilities requiredCapabilities(MutationKind kind) {
+        return ProviderCapabilities.all();
+    }
+
+    private EconomyJournalRecord attachBinding(EconomyJournalRecord record) {
+        BoundEconomyOperationV1 bound = bindings.get(record.request().requestId());
+        if (bound == null) {
+            return record;
+        }
+        if (record.binding().isPresent()
+                && !record.binding().orElseThrow().equals(bound.persistedBinding())) {
+            throw new IllegalStateException("journal record binding conflicts with the admitted account");
+        }
+        return record.withBinding(bound.persistedBinding());
     }
 
     private static boolean validReceipt(MutationRequest request, MutationReceipt receipt) {
@@ -944,6 +1104,13 @@ public final class EconomyTransactionCoordinator {
 
     private static <T> ProviderResult<T> copyFailure(ProviderResult<?> source) {
         return new ProviderResult<>(source.status(), source.error(), Optional.empty(), Optional.empty(), source.diagnostic());
+    }
+
+    private static <T> ProviderResult<T> bindingFailure(ProviderResult<?> source) {
+        if (source.error() == ProviderError.CAPABILITY_MISSING && source.status() == ProviderResultStatus.REJECTED) {
+            return ProviderResult.unavailable(source.error(), source.diagnostic());
+        }
+        return copyFailure(source);
     }
 
     private ProviderResult<MutationReceipt> executeBound(BoundEconomyOperationV1 operation,

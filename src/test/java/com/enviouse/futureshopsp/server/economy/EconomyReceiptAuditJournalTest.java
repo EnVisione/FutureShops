@@ -5,6 +5,8 @@ import com.enviouse.futureshopsp.api.economy.MutationRequest;
 import com.enviouse.futureshopsp.api.economy.ProviderResultStatus;
 import com.enviouse.futureshopsp.api.economy.RequestId;
 import com.enviouse.futureshopsp.api.economy.MutationReceipt;
+import com.enviouse.futureshopsp.api.economy.EconomyApi;
+import com.enviouse.futureshopsp.api.economy.PersistedAccountBindingV1;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -82,6 +84,28 @@ class EconomyReceiptAuditJournalTest {
         FileEconomyReceiptAuditJournal reloaded = new FileEconomyReceiptAuditJournal(journal.directory());
         assertTrue(reloaded.integrityValid());
         assertEquals(receipt, reloaded.latest(request.requestId()).orElseThrow().receipt().orElseThrow());
+    }
+
+    @Test
+    void roundTripsThePersistedAccountBindingWithTheAuditRecord() {
+        FileEconomyReceiptAuditJournal journal = new FileEconomyReceiptAuditJournal(
+                temporaryDirectory.resolve("bound-receipts"));
+        MutationRequest request = request();
+        PersistedAccountBindingV1 binding = new PersistedAccountBindingV1(
+                EconomyApi.PIXELMON_PROVIDER_ID, EconomyApi.COMPATIBILITY_VERSION,
+                "pixelmon.finaleconomy.bridge", "pixelmon-exact-account-v1", "FEBankAccount",
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", Optional.empty(),
+                "finaleconomy:1.0.9", request.actor(), "PokéDollar", 0, "BankAccountProxy", 0L,
+                request.requestId(), request.requestId(),
+                "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789", 1);
+        EconomyJournalRecord pending = new EconomyJournalRecord(request, EconomyTransactionState.EXTERNAL_PENDING,
+                Optional.empty(), ProviderResultStatus.UNAVAILABLE, "pending", "pixelmon", Optional.of(binding));
+        journal.append(pending);
+
+        FileEconomyReceiptAuditJournal reloaded = new FileEconomyReceiptAuditJournal(journal.directory());
+
+        assertTrue(reloaded.integrityValid());
+        assertEquals(binding, reloaded.latest(request.requestId()).orElseThrow().binding().orElseThrow());
     }
 
     @Test

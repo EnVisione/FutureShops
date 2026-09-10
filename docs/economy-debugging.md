@@ -26,13 +26,13 @@ Each schema version 2 `futureshops.debug` event includes source and artifact ide
 2. On a disposable node-1 runtime, write and read back `eula=true` before starting the dedicated server. Inspect the Gradle task graph first and confirm that no client or renderer is started.
 3. Start the exact server, wait for readiness, run `futureshops debug status`, then enable only the module needed for the account or persistence claim.
 4. Drive the real shop or economy handler with one deterministic request. Record the request alias, fixture account alias, operation, exact minor amount, initial image revision, and expected journal and custody state. Do not bypass permission checks or coordinator routes.
-5. Filter the server log by `futureshops.debug`, capture ID, and request alias. Confirm required, declared, and observed capability sets separately. Confirm refusal occurs before intent and custody when binding or capability evidence is missing.
+5. Filter the server log by `futureshops.debug`, capture ID, and request alias. Confirm required, declared, and observed capability sets separately. For a bound provider, also confirm the adapter, account class, backend lineage, request fingerprint, and binding validation result. Confirm refusal occurs before intent and custody when binding or capability evidence is missing.
 6. Run `futureshops debug off`, inspect status, wait one tick, and repeat the matching stimulus. No new matching event is accepted except an explicitly identified queue flush.
 7. Retain only the sanitized packet, decisive log excerpts, command results, test summary, hashes, and unverified claim list. Redact raw identity and private data before sharing.
 
 ## Account verdicts
 
-Provider declarations are upper bounds. A bound operation is admissible only when required capabilities intersect with both the provider declaration and independently observed account proof. A custom or hybrid Pixelmon wrapper can be considered only after the exact account class, class loader, descriptors, backend lineage, currency, manager identity, and durable writer protocol are proven. The current convenience binding without runtime proof is intentionally refused.
+Provider declarations are upper bounds. A bound operation is admissible only when required capabilities intersect with both the provider declaration and independently observed account proof. A custom or hybrid Pixelmon wrapper can be considered only after the exact account class, class loader, descriptors, backend lineage, currency, manager identity, and durable writer protocol are proven. Regular requests use the same binding barrier before the write ahead journal is created. The coordinator persists the binding with each journal and receipt audit transition, then requires the same proof again for lookup and retry. The current convenience binding without runtime proof is intentionally refused.
 
 Legacy records are classified as `LEGACY_COMPATIBLE`, `LEGACY_HYBRID_UNRESOLVED`, or `LEGACY_UNPROVABLE`. Unresolved hybrid and unprovable records remain in recovery or frozen state and are never rebound to the current account.
 

@@ -1,6 +1,8 @@
 package com.enviouse.futureshopsp.compat.pixelmon;
 
 import com.enviouse.futureshopsp.api.economy.BalanceSnapshot;
+import com.enviouse.futureshopsp.api.economy.BoundEconomyOperationV1;
+import com.enviouse.futureshopsp.api.economy.BoundEconomyProvider;
 import com.enviouse.futureshopsp.api.economy.CurrencyMetadata;
 import com.enviouse.futureshopsp.api.economy.EconomyApi;
 import com.enviouse.futureshopsp.api.economy.MutationKind;
@@ -12,7 +14,12 @@ import com.enviouse.futureshopsp.api.economy.ProviderLifecycle;
 import com.enviouse.futureshopsp.api.economy.ProviderReadiness;
 import com.enviouse.futureshopsp.api.economy.ProviderResult;
 import com.enviouse.futureshopsp.api.economy.RequestId;
+import com.enviouse.futureshopsp.api.economy.OperationRequest;
+import com.enviouse.futureshopsp.api.economy.PersistedAccountBindingV1;
+import com.enviouse.futureshopsp.api.economy.RequiredCapabilities;
+import com.enviouse.futureshopsp.api.economy.RuntimeBindingProofV1;
 import com.enviouse.futureshopsp.server.debug.DebugDiagnostics;
+import com.enviouse.futureshopsp.server.economy.EconomyRecordChecksum;
 import net.minecraft.server.MinecraftServer;
 
 import java.lang.reflect.InvocationTargetException;
@@ -22,11 +29,17 @@ import java.math.RoundingMode;
 import java.util.UUID;
 
 /** Optional Pixelmon adapter. */
-public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.api.economy.EconomyProvider {
+public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.api.economy.EconomyProvider,
+        BoundEconomyProvider {
     public static final String PROVIDER_ID = EconomyApi.PIXELMON_PROVIDER_ID;
     public static final String SUPPORTED_VERSION = "9.4.0";
     private static final String PROXY_CLASS = "com.pixelmonmod.pixelmon.api.economy.BankAccountProxy";
     private static final String ACCOUNT_CLASS = "com.pixelmonmod.pixelmon.api.economy.BankAccount";
+    private static final String NATIVE_STORAGE_CLASS = "com.pixelmonmod.pixelmon.api.storage.PlayerPartyStorage";
+    private static final String BRIDGE_ADAPTER_ID = "pixelmon.finaleconomy.bridge";
+    private static final String NATIVE_ADAPTER_ID = "pixelmon.native.mixin";
+    private static final String ADAPTER_PROTOCOL = "pixelmon-exact-account-v1";
+    private static final String BRIDGE_LINEAGE = "pixelmoneconomybridge:1.1.6|finaleconomy:1.0.9|evernifecore:2.0.4.4|vault:1.7.3";
     private static final CurrencyMetadata CURRENCY = new CurrencyMetadata("PokéDollar", "PokéDollars", 0);
     private static final ProviderCapabilities CAPABILITIES = new ProviderCapabilities(true, true, false, false,
             false, false);
@@ -56,6 +69,134 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
     @Override
     public CurrencyMetadata currency() {
         return CURRENCY;
+    }
+
+    @Override
+    public ProviderResult<BoundEconomyOperationV1> bind(OperationRequest request, RequiredCapabilities required) {
+        if (request == null || required == null) {
+            return ProviderResult.rejected(ProviderError.INVALID_REQUEST,
+                    "pixelmon account binding request is required");
+        }
+        AccountRead account = readAccount(request.actor());
+        if (!account.available()) {
+            return ProviderResult.unavailable(account.error(), account.diagnostic());
+        }
+        ProviderCapabilities observed = observedCapabilities(account);
+        if (!supportsRequired(required.value(), observed)) {
+            return ProviderResult.rejected(ProviderError.CAPABILITY_MISSING,
+                    "pixelmon account does not prove the required capabilities");
+        }
+        String accountClass = account.value().getClass().getName();
+        String adapterId = account.bridge() == null ? NATIVE_ADAPTER_ID : BRIDGE_ADAPTER_ID;
+        String lineage = account.bridge() == null ? "pixelmon:9.4.0:native-receipt-mixin" : BRIDGE_LINEAGE;
+        String backendFingerprint = EconomyRecordChecksum.sha256(accountClass + "|" + SUPPORTED_VERSION + "|" + adapterId);
+        String requestFingerprint = EconomyRecordChecksum.sha256(
+                request.requestId().value() + "|" + request.actor() + "|" + request.counterparty()
+                        + "|" + request.amountMinorUnits() + "|" + request.kind() + "|" + request.operation());
+        PersistedAccountBindingV1 persisted = new PersistedAccountBindingV1(
+                PROVIDER_ID, compatibilityVersion(), adapterId, ADAPTER_PROTOCOL, accountClass,
+                backendFingerprint, java.util.Optional.empty(), lineage, request.actor(), currency().singularName(),
+                currency().decimalPlaces(), PROXY_CLASS, 0L, request.requestId(), request.requestId(),
+                requestFingerprint, 1);
+        java.util.Set<String> descriptors = account.bridge() == null
+                ? java.util.Set.of(NATIVE_STORAGE_CLASS + "#futureshopsMutate", NATIVE_STORAGE_CLASS + "#futureshopsLookup",
+                NATIVE_STORAGE_CLASS + "#getBalance", NATIVE_STORAGE_CLASS + "#take", NATIVE_STORAGE_CLASS + "#add")
+                : java.util.Set.of(FinalEconomyTransactionBridgeAccess.ACCOUNT_CLASS + "#balance",
+                FinalEconomyTransactionBridgeAccess.ACCOUNT_CLASS + "#precheck",
+                FinalEconomyTransactionBridgeAccess.ACCOUNT_CLASS + "#mutate",
+                FinalEconomyTransactionBridgeAccess.ACCOUNT_CLASS + "#lookup");
+        RuntimeBindingProofV1 proof = new RuntimeBindingProofV1(accountClass,
+                account.value().getClass().getClassLoader() == null ? "bootstrap"
+                        : account.value().getClass().getClassLoader().toString(), descriptors,
+                account.value(), null, null, 0L, observed, "");
+        return ProviderResult.confirmed(new BoundEconomyOperationV1(request.mutationRequest(), request.actor(),
+                required.value(), persisted, proof));
+    }
+
+    @Override
+    public ProviderResult<BalanceSnapshot> precheck(BoundEconomyOperationV1 operation) {
+        if (operation == null) {
+            return ProviderResult.rejected(ProviderError.INVALID_REQUEST, "bound operation is required");
+        }
+        AccountRead account = readBoundAccount(operation);
+        if (!account.available()) {
+            return ProviderResult.unavailable(account.error(), account.diagnostic());
+        }
+        if (account.bridge() != null) {
+            ProviderResult<BigDecimal> result = account.bridge().precheck(account.value(), operation.actorId(),
+                    operation.request().amountMinorUnits(), operation.request().kind());
+            if (!result.confirmed()) {
+                return nonConfirmedBalance(result);
+            }
+            try {
+                return ProviderResult.confirmed(new BalanceSnapshot(operation.actorId(),
+                        toMinorUnits(result.value().orElseThrow())));
+            } catch (ArithmeticException | IllegalArgumentException exception) {
+                return ProviderResult.unavailable(ProviderError.INVALID_PRECISION,
+                        "finaleconomy bound balance is not exact");
+            }
+        }
+        try {
+            if (requiresFunds(operation.request().kind())
+                    && !runtime.hasBalance(account.value(), BigDecimal.valueOf(operation.request().amountMinorUnits()))) {
+                return ProviderResult.rejected(ProviderError.INSUFFICIENT_FUNDS,
+                        "native Pixelmon account has insufficient PokéDollars");
+            }
+            return ProviderResult.confirmed(new BalanceSnapshot(operation.actorId(), toMinorUnits(account.balance())));
+        } catch (ReflectiveOperationException | ArithmeticException | IllegalArgumentException exception) {
+            return ProviderResult.unavailable(ProviderError.PROVIDER_EXCEPTION,
+                    "native Pixelmon bound precheck failed");
+        }
+    }
+
+    @Override
+    public ProviderResult<MutationReceipt> mutate(BoundEconomyOperationV1 operation, MutationRequest request) {
+        if (!boundRequestMatches(operation, request)) {
+            return ProviderResult.rejected(ProviderError.REQUEST_CONFLICT,
+                    "bound Pixelmon request identity changed");
+        }
+        AccountRead account = readBoundAccount(operation);
+        if (!account.available()) {
+            return ProviderResult.unavailable(account.error(), account.diagnostic());
+        }
+        if (account.bridge() != null) {
+            return account.bridge().mutate(account.value(), operation.actorId(), request.requestId(),
+                    request.amountMinorUnits(), request.kind());
+        }
+        if (server == null) {
+            return ProviderResult.unavailable(ProviderError.NOT_READY,
+                    "native Pixelmon bound mutation requires a live server");
+        }
+        return ((PixelmonNativeEconomyAccess) account.value()).futureshopsMutate(request.requestId(), request.kind(),
+                request.amountMinorUnits(), server.registryAccess());
+    }
+
+    @Override
+    public ProviderResult<MutationReceipt> lookup(BoundEconomyOperationV1 operation) {
+        if (operation == null) {
+            return ProviderResult.rejected(ProviderError.INVALID_REQUEST, "bound operation is required");
+        }
+        AccountRead account = readBoundAccount(operation);
+        if (!account.available()) {
+            return ProviderResult.unavailable(account.error(), account.diagnostic());
+        }
+        if (account.bridge() != null) {
+            return account.bridge().lookup(account.value(), operation.actorId(), operation.request().requestId(),
+                    operation.request().amountMinorUnits(), operation.request().kind());
+        }
+        if (!(account.value() instanceof PixelmonNativeEconomyAccess nativeAccount)) {
+            return ProviderResult.rejected(ProviderError.CAPABILITY_MISSING,
+                    "bound Pixelmon account has no receipt lookup");
+        }
+        return nativeAccount.futureshopsLookup(operation.request().requestId());
+    }
+
+    @Override
+    public ProviderResult<MutationReceipt> retry(BoundEconomyOperationV1 operation) {
+        if (operation == null) {
+            return ProviderResult.rejected(ProviderError.INVALID_REQUEST, "bound operation is required");
+        }
+        return mutate(operation, operation.request());
     }
 
     @Override
@@ -341,6 +482,54 @@ public final class PixelmonEconomyProvider implements com.enviouse.futureshopsp.
         boolean transactionBridge = account.bridge() != null;
         boolean mutation = nativeReceipt || transactionBridge;
         return new ProviderCapabilities(true, true, mutation, mutation, mutation, mutation);
+    }
+
+    private static boolean supportsRequired(ProviderCapabilities required, ProviderCapabilities observed) {
+        for (com.enviouse.futureshopsp.api.economy.EconomyCapability capability
+                : com.enviouse.futureshopsp.api.economy.EconomyCapability.values()) {
+            if (required.supports(capability) && !observed.supports(capability)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean boundRequestMatches(BoundEconomyOperationV1 operation, MutationRequest request) {
+        return operation != null && request != null && operation.actorId().equals(request.actor())
+                && operation.request().requestId().equals(request.requestId())
+                && operation.request().amountMinorUnits() == request.amountMinorUnits()
+                && operation.request().kind() == request.kind()
+                && operation.request().counterparty().equals(request.counterparty());
+    }
+
+    private AccountRead readBoundAccount(BoundEconomyOperationV1 operation) {
+        if (operation == null || operation.runtimeProof().accountWrapperReference() == null) {
+            return AccountRead.unavailable(ProviderError.CAPABILITY_MISSING,
+                    "pixelmon bound account reference is unavailable");
+        }
+        Object account = operation.runtimeProof().accountWrapperReference();
+        if (!operation.runtimeProof().accountClass().equals(account.getClass().getName())) {
+            return AccountRead.unavailable(ProviderError.BINDING_CHANGED,
+                    "pixelmon bound account class changed");
+        }
+        try {
+            UUID identifier = runtime.identifier(account);
+            if (!operation.actorId().equals(identifier)) {
+                return AccountRead.unavailable(ProviderError.BINDING_CHANGED,
+                        "pixelmon bound account identity changed");
+            }
+            FinalEconomyTransactionBridgeAccess bridge = FinalEconomyTransactionBridgeAccess.discover(account);
+            BigDecimal balance = bridge == null ? runtime.balance(account)
+                    : bridge.balance(account, operation.actorId()).value().orElse(null);
+            if (balance == null) {
+                return AccountRead.unavailable(ProviderError.PROVIDER_EXCEPTION,
+                        "pixelmon bound account balance is unavailable");
+            }
+            return AccountRead.available(account, balance, bridge);
+        } catch (ReflectiveOperationException | RuntimeException exception) {
+            return AccountRead.unavailable(ProviderError.BINDING_CHANGED,
+                    "pixelmon bound account could not be revalidated");
+        }
     }
 
     private AccountRead readAccount(UUID playerId) {
