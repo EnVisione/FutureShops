@@ -596,6 +596,62 @@ public final class EconomyGameTests {
         helper.succeed();
     }
 
+    @GameTest(template = "empty", timeoutTicks = 200)
+    public static void pixelmonHybridShopBuyAndSellSuccess(GameTestHelper helper) {
+        if (!"pixelmon".equals(BalanceManager.getLifecycleSnapshotOrUnresolved().providerId())) {
+            helper.succeed();
+            return;
+        }
+
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        if (isNativePixelmonAccount(player)) {
+            helper.succeed();
+            return;
+        }
+
+        var seed = BalanceManager.deposit(player.getUUID(), 1_000L);
+        helper.assertTrue(seed.success(),
+                "the exact hybrid account must accept a bound seed deposit before shop verification");
+        long seededBalance = BalanceManager.queryBalance(player.getUUID()).value().orElseThrow().balanceMinorUnits();
+        helper.assertTrue(seededBalance == 1_000L,
+                "the exact hybrid account must expose the bound seed balance");
+
+        int diamondsBefore = player.getInventory().countItem(Items.DIAMOND);
+        ShopSessionManager.open(player.getUUID(), "default");
+        try {
+            ShopBuyService.handleBuyRequest(player,
+                    C2SBuyRequestPacket.cart("default",
+                            List.of(new C2SBuyRequestPacket.LineItem("minecraft:diamond", 1))));
+        } finally {
+            ShopSessionManager.close(player.getUUID());
+        }
+        long afterBuy = BalanceManager.queryBalance(player.getUUID()).value().orElseThrow().balanceMinorUnits();
+        helper.assertTrue(player.getInventory().countItem(Items.DIAMOND) == diamondsBefore + 1,
+                "the exact hybrid shop buy must deliver the purchased item");
+        helper.assertTrue(afterBuy == 500L,
+                "the exact hybrid shop buy must debit the bound provider balance once");
+
+        player.getInventory().add(new ItemStack(Items.IRON_INGOT, 1));
+        int ironBefore = player.getInventory().countItem(Items.IRON_INGOT);
+        ShopSessionManager.open(player.getUUID(), "default");
+        try {
+            ShopSellService.handleSellRequest(player,
+                    new C2SSellRequestPacket("default", "minecraft:iron_ingot", 1));
+        } finally {
+            ShopSessionManager.close(player.getUUID());
+        }
+        long afterSell = BalanceManager.queryBalance(player.getUUID()).value().orElseThrow().balanceMinorUnits();
+        helper.assertTrue(player.getInventory().countItem(Items.IRON_INGOT) == ironBefore - 1,
+                "the exact hybrid shop sell must remove the sold item after confirmation");
+        helper.assertTrue(afterSell == 525L,
+                "the exact hybrid shop sell must credit the bound provider balance once");
+        helper.assertTrue(!BalanceManager.getCustodyStore().hasIncompleteRecords(),
+                "the exact hybrid shop buy and sell must release custody");
+        LOGGER.info("futureshops.pixelmon.gametest hybrid shop buy and sell confirmed balance={} account_class=custom_or_hybrid",
+                afterSell);
+        helper.succeed();
+    }
+
     @GameTest(template = "empty", timeoutTicks = 100)
     public static void pixelmonPayTransferSuccess(GameTestHelper helper) {
         if (!"pixelmon".equals(BalanceManager.getLifecycleSnapshotOrUnresolved().providerId())) {

@@ -46,6 +46,8 @@ public final class ShopBuyService {
 
     public static void handleBuyRequest(ServerPlayer player, C2SBuyRequestPacket packet) {
         BuyResult result = execute(player, packet);
+        long snapshotRevision = ShopSessionManager.get(player.getUUID())
+                .map(ShopSession::snapshotRevision).orElse(0L);
         ShopPackets.sendToPlayer(player, new S2CBuyResponsePacket(
                 result.success(),
                 packet.cartCheckout(),
@@ -54,7 +56,14 @@ public final class ShopBuyService {
                 result.resultingBalance(),
                 result.totalQuantity(),
                 result.totalCost(),
-                result.balanceAvailable()));
+                result.balanceAvailable(),
+                snapshotRevision,
+                result.success() ? "accepted" : result.errorCode() == ShopResultCode.STALE_REQUEST
+                        ? "stale_snapshot" : "rejected"));
+
+        if (result.errorCode() == ShopResultCode.STALE_REQUEST && player.getServer() != null) {
+            ShopDataService.sendShopData(player, result.shopId(), false, false);
+        }
 
         if (result.success() && player.getServer() != null) {
             for (PreparedLine line : result.lines()) {
@@ -82,6 +91,9 @@ public final class ShopBuyService {
         ShopSession session = ShopSessionManager.get(player.getUUID()).orElse(null);
         if (session == null || !session.shopId().equals(shopId)) {
             return BuyResult.error(shopId, balanceView(player.getUUID()), ShopResultCode.SHOP_CLOSED);
+        }
+        if (packet.snapshotRevision() != session.snapshotRevision()) {
+            return BuyResult.error(shopId, balanceView(player.getUUID()), ShopResultCode.STALE_REQUEST);
         }
 
         Map<String, Integer> mergedLines = mergeLines(packet.lineItems());

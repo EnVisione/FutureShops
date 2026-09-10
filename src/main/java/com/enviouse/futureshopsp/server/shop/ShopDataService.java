@@ -65,6 +65,7 @@ public final class ShopDataService {
      */
     public static void sendShopData(ServerPlayer player, String requestedShopId, boolean includeNearbyShops, boolean forceOpen) {
         String shopId = resolveShopId(requestedShopId);
+        long snapshotRevision = ShopSessionManager.advanceSnapshotRevision(player.getUUID(), shopId);
         String currencyName = BalanceManager.getCurrencyName();
         int decimalPlaces = BalanceManager.getDecimalPlaces();
         ProviderResult<BalanceSnapshot> balanceResult = BalanceManager.queryBalance(player.getUUID());
@@ -95,7 +96,8 @@ public final class ShopDataService {
                 balanceResult.confirmed(),
                 lifecycle.providerId(),
                 lifecycle.lifecycle().name(),
-                lifecycle.diagnostic()));
+                lifecycle.diagnostic(),
+                snapshotRevision));
     }
 
     public static void resendActiveSessions(MinecraftServer server) {
@@ -130,4 +132,3 @@ public final class ShopDataService {
         }
     }
 }
-

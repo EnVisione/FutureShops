@@ -37,6 +37,8 @@ public final class ShopSellService {
 
     public static void handleSellRequest(ServerPlayer player, C2SSellRequestPacket packet) {
         SellResult result = execute(player, packet);
+        long snapshotRevision = ShopSessionManager.get(player.getUUID())
+                .map(ShopSession::snapshotRevision).orElse(0L);
         // Resolve the registry id for the client echo, history, and the public event (all want a valid
         // ResourceLocation). Dynamic pricing stays keyed by the listingId. Fall back to the listingId
         // if the listing vanished between request and now.
@@ -50,7 +52,14 @@ public final class ShopSellService {
                 result.resultingBalance(),
                 packet.quantity(),
                 result.totalValue(),
-                result.balanceAvailable()));
+                result.balanceAvailable(),
+                snapshotRevision,
+                result.success() ? "accepted" : result.errorCode() == ShopResultCode.STALE_REQUEST
+                        ? "stale_snapshot" : "rejected"));
+
+        if (result.errorCode() == ShopResultCode.STALE_REQUEST && player.getServer() != null) {
+            ShopDataService.sendShopData(player, result.shopId(), false, false);
+        }
 
         if (result.success() && player.getServer() != null) {
             TransactionHistoryService.record(player, result.shopId(), "SELL", registryItemId, packet.quantity(), result.totalValue(), "DETAIL");
@@ -70,6 +79,9 @@ public final class ShopSellService {
         ShopSession session = ShopSessionManager.get(player.getUUID()).orElse(null);
         if (session == null || !session.shopId().equals(shopId)) {
             return SellResult.error(shopId, balanceView(player.getUUID()), ShopResultCode.SHOP_CLOSED);
+        }
+        if (packet.snapshotRevision() != session.snapshotRevision()) {
+            return SellResult.error(shopId, balanceView(player.getUUID()), ShopResultCode.STALE_REQUEST);
         }
 
         int quantity = packet.quantity();

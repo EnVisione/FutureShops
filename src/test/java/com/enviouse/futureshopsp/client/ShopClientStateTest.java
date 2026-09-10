@@ -59,6 +59,22 @@ class ShopClientStateTest {
         assertEquals(12345L, ShopClientState.getCurrentBalanceMinorUnits());
     }
 
+    @Test
+    void olderShopSnapshotIsRejectedAfterNewerRevisionArrives() {
+        ShopClientState.applyShopData("shop", 0L, "Coins", 2, List.of(), List.of(), List.of(), List.of(),
+                true, List.of(), true, "internal", "READY", "", 8L);
+
+        assertEquals(8L, ShopClientState.getSnapshotRevision());
+        assertFalse(ShopClientState.acceptsSnapshot("shop", 7L));
+        assertEquals(8L, ShopClientState.getSnapshotRevision());
+        ShopClientState.applyShopData("shop", 0L, "Coins", 2, List.of(), List.of(), List.of(), List.of(),
+                true, List.of(), true, "internal", "READY", "", 9L);
+        assertEquals(9L, ShopClientState.getSnapshotRevision());
+        ShopClientState.recordResponse(9L, "stale_snapshot");
+        assertEquals(9L, ShopClientState.getLastResponseRevision());
+        assertEquals("stale_snapshot", ShopClientState.getLastResponseReason());
+    }
+
     private static CatalogItem item(String listingId, long buyPrice) {
         return new CatalogItem(listingId, listingId, listingId, buyPrice, 1L, -1, true, false,
                 "all", false, 0L, false, "");

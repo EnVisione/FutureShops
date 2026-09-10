@@ -132,7 +132,8 @@ public class ItemDetailScreen extends AbstractShopScreen implements ShopScreenMa
                                 modal -> {
                                     modal.setProcessing();
                                     ShopPackets.sendToServer(C2SBuyRequestPacket.single(
-                                            ShopClientState.getActiveShopId(), item.listingId(), qty));
+                                            ShopClientState.getActiveShopId(), item.listingId(), qty,
+                                            ShopClientState.getSnapshotRevision()));
                                 },
                                 () -> confirmationModal = null
                         );
@@ -157,7 +158,8 @@ public class ItemDetailScreen extends AbstractShopScreen implements ShopScreenMa
                                 modal -> {
                                     modal.setProcessing();
                                     ShopPackets.sendToServer(new C2SSellRequestPacket(
-                                            ShopClientState.getActiveShopId(), item.listingId(), qty));
+                                            ShopClientState.getActiveShopId(), item.listingId(), qty,
+                                            ShopClientState.getSnapshotRevision()));
                                 },
                                 () -> confirmationModal = null
                         );

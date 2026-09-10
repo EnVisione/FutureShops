@@ -254,7 +254,8 @@ public class CartScreen extends AbstractShopScreen implements ShopScreenMarker {
                 .map(entry -> new C2SBuyRequestPacket.LineItem(entry.listingId(), entry.quantity()))
                 .toList();
         if (!lines.isEmpty()) {
-            ShopPackets.sendToServer(C2SBuyRequestPacket.cart(ShopClientState.getActiveShopId(), lines));
+            ShopPackets.sendToServer(C2SBuyRequestPacket.cart(ShopClientState.getActiveShopId(), lines,
+                    ShopClientState.getSnapshotRevision()));
         }
     }
 

@@ -74,6 +74,7 @@ public enum ShopResultCode {
     // ── Protocol / request errors ────────────────────────────────────────
     INVALID_REQUEST,
     INVALID_TARGET,
+    STALE_REQUEST,
     SERVER_ERROR,
     CANCELLED_BY_EVENT,
     COOLDOWN,

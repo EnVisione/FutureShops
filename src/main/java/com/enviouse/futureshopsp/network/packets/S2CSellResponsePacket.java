@@ -20,13 +20,15 @@ public record S2CSellResponsePacket(
         long resultingBalanceMinorUnits,
         int quantity,
         long totalMinorUnits,
-        boolean balanceAvailable) implements CustomPacketPayload {
+        boolean balanceAvailable,
+        long snapshotRevision,
+        String responseReason) implements CustomPacketPayload {
     public static final Type<S2CSellResponsePacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(Futureshops.MODID, "s2csellresponsepacket"));
     public static final StreamCodec<RegistryFriendlyByteBuf, S2CSellResponsePacket> STREAM_CODEC = StreamCodec.ofMember(S2CSellResponsePacket::encode, S2CSellResponsePacket::decode);
 
     public S2CSellResponsePacket(boolean success, String shopId, String itemId, ShopResultCode errorCode,
                                  long resultingBalanceMinorUnits, int quantity, long totalMinorUnits) {
-        this(success, shopId, itemId, errorCode, resultingBalanceMinorUnits, quantity, totalMinorUnits, true);
+        this(success, shopId, itemId, errorCode, resultingBalanceMinorUnits, quantity, totalMinorUnits, true, 0L, "");
     }
 
     @Override
@@ -45,6 +47,8 @@ public record S2CSellResponsePacket(
         buffer.writeVarInt(packet.quantity);
         buffer.writeLong(packet.totalMinorUnits);
         buffer.writeBoolean(packet.balanceAvailable);
+        buffer.writeLong(packet.snapshotRevision);
+        buffer.writeUtf(packet.responseReason, 64);
     }
 
     public static S2CSellResponsePacket decode(FriendlyByteBuf buffer) {
@@ -62,7 +66,10 @@ public record S2CSellResponsePacket(
         int qty = buffer.readVarInt();
         long totalMu = buffer.readLong();
         boolean balanceAvailable = buffer.readBoolean();
-        return new S2CSellResponsePacket(success, shopId, itemId, code, bal, qty, totalMu, balanceAvailable);
+        long snapshotRevision = buffer.readLong();
+        String responseReason = buffer.readUtf(64);
+        return new S2CSellResponsePacket(success, shopId, itemId, code, bal, qty, totalMu, balanceAvailable,
+                snapshotRevision, responseReason);
     }
 
     public static void handle(S2CSellResponsePacket packet, IPayloadContext context) {

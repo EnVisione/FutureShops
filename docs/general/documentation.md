@@ -1,6 +1,6 @@
 # FutureShops technical documentation
 
-This document is the maintainer overview for the FutureShops 2.3.0 NeoForge 1.21.1 line. The active product contract is [the strict external economy plan](plan.md). The public provider details are in [the economy provider API guide](../api/economy-provider.md), and phase evidence is indexed from [the documentation index](../README.md).
+This document is the maintainer overview for the FutureShops 2.4.1 NeoForge 1.21.1 candidate line. The active product contract is [the strict external economy plan](plan.md). The public provider details are in [the economy provider API guide](../api/economy-provider.md), and phase evidence is indexed from [the documentation index](../README.md). The candidate remains unpublished while Phase 006 completes its remaining stale snapshot, support, and integration gates. Exact hybrid server and connected client buy and sell evidence is recorded in the Phase 006 packet.
 
 ## Runtime and build
 
@@ -37,6 +37,8 @@ Exact lawfully obtained Pixelmon, DanConomy, Vault, bridge, and backend artifact
 The public provider contract requires balance query, precheck, withdraw, deposit, durable receipt lookup, and idempotent retry capabilities for a mutation. A provider that cannot prove a capability is refused before journal intent and before custody. A receipt resulting balance is evidence for the caller and is not copied into a FutureShops ledger. Pixelmon 9.4.0 proves query and precheck through its public API. The exact native `PlayerPartyStorage` mixin additionally proves request receipts, retry lookup, and durable saves for transformed native accounts. Generic custom, hybrid, and untransformed accounts remain refused. The exact `FEBankAccount` hybrid path is allowed only through the separately installed `FutureShopsFinalEconomyBridge` and its pinned FinalEconomy receipt image protocol. DanConomy 1.2.1 proves the complete contract only for its exact `LEDGER` account path. Its mixin stores the balance change and request receipt in the same `danconomy_ledger.dat` image, forces the replacement, and validates the persisted image before acknowledgement. Missing, mirrored, malformed, conflicting, or unsupported states fail closed. See [Pixelmon economy integration](../integrations/pixelmon-economy.md) and [DanConomy economy integration](../integrations/danconomy-economy.md).
 
 All server price, barter, bundle, buyback, and physical money value totals use checked integer arithmetic. Catalog or listing overflow returns an invalid result before a provider or item effect. Transaction event listeners may adjust a price, but every override is revalidated and buy cart totals are recomputed with checked addition before debit admission.
+
+Shop payload protocol version 26 carries a monotonic catalog `snapshot_revision`. Clients echo that value on buy, cart, and sell requests. The server rejects stale revisions before mutation with typed `STALE_REQUEST` and `response_reason=stale_snapshot`, then sends a silent authoritative refresh. Older catalog payloads are ignored on the client. Support evidence records the received revision, request revision, response reason, and refreshed revision.
 
 ## Durable records
 

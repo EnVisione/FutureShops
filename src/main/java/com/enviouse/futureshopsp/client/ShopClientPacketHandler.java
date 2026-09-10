@@ -49,6 +49,9 @@ public final class ShopClientPacketHandler {
     public static void handleShopData(S2CShopDataPacket packet) {
         Minecraft mc = Minecraft.getInstance();
         mc.execute(() -> {
+            if (!ShopClientState.acceptsSnapshot(packet.shopId(), packet.snapshotRevision())) {
+                return;
+            }
             boolean shopScreenOpen = mc.screen instanceof ShopMainScreen;
             if (!packet.forceOpen() && !shopScreenOpen) {
                 // Silent refresh and the player isn't viewing the shop — nothing to do.
@@ -69,7 +72,8 @@ public final class ShopClientPacketHandler {
                     packet.balanceAvailable(),
                     packet.providerId(),
                     packet.providerLifecycle(),
-                    packet.providerDiagnostic());
+                    packet.providerDiagnostic(),
+                    packet.snapshotRevision());
             ShopPackets.sendToServer(new com.enviouse.futureshopsp.network.packets.C2SInventorySyncPacket(packet.shopId()));
             if (shopScreenOpen) {
                 // Update in-place — preserves nearbyMode, scroll, tabs.
@@ -241,6 +245,7 @@ public final class ShopClientPacketHandler {
     public static void handleBuyResponse(S2CBuyResponsePacket packet) {
         Minecraft mc = Minecraft.getInstance();
         mc.execute(() -> {
+            ShopClientState.recordResponse(packet.snapshotRevision(), packet.responseReason());
             if (packet.balanceAvailable()) {
                 ShopClientState.setCurrentBalanceMinorUnits(packet.resultingBalanceMinorUnits());
             } else {
@@ -264,6 +269,7 @@ public final class ShopClientPacketHandler {
     public static void handleSellResponse(S2CSellResponsePacket packet) {
         Minecraft mc = Minecraft.getInstance();
         mc.execute(() -> {
+            ShopClientState.recordResponse(packet.snapshotRevision(), packet.responseReason());
             if (packet.balanceAvailable()) {
                 ShopClientState.setCurrentBalanceMinorUnits(packet.resultingBalanceMinorUnits());
             } else {
@@ -404,7 +410,7 @@ public final class ShopClientPacketHandler {
                  NO_LINK, BAD_LINK_TARGET, RS_NOT_CONTROLLER, STORAGE_FULL,
                  MISSING_BARTER_ITEMS, ROLLBACK, NOTHING_TO_CLAIM, CLAIM_FAILED,
                  PROMO_FAILED, NO_CLIPBOARD, INVALID_REQUEST, INVALID_TARGET, SERVER_ERROR,
-                 CANCELLED_BY_EVENT, SHOP_OUT_OF_MONEY, BUYBACK_CAP_REACHED, RECOVERY_REQUIRED
+                 STALE_REQUEST, CANCELLED_BY_EVENT, SHOP_OUT_OF_MONEY, BUYBACK_CAP_REACHED, RECOVERY_REQUIRED
                     -> "command.futureshops.error.server";
         };
     }
