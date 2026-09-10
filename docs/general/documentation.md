@@ -1,6 +1,6 @@
 # FutureShops technical documentation
 
-This document is the maintainer overview for the FutureShops 2.4.1 NeoForge 1.21.1 candidate line. The active product contract is [the strict external economy plan](plan.md). The public provider details are in [the economy provider API guide](../api/economy-provider.md), and phase evidence is indexed from [the documentation index](../README.md). The candidate remains unpublished while Phase 006 exact hybrid and client validation gates are open.
+This document is the maintainer overview for the FutureShops 2.4.1 NeoForge 1.21.1 candidate line. The active product contract is [the strict external economy plan](plan.md). The public provider details are in [the economy provider API guide](../api/economy-provider.md), and phase evidence is indexed from [the documentation index](../README.md). The candidate remains unpublished while Phase 006 completes its remaining stale snapshot, support, and integration gates. Exact hybrid server and connected client buy and sell evidence is recorded in the Phase 006 packet.
 
 ## Runtime and build
 

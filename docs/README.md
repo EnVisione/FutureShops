@@ -1,6 +1,6 @@
 # Documentation index
 
-FutureShops documentation is organized by topic. The phase verification packets record repository controlled evidence for the NeoForge 1.21.1 line. The current 2.4.1 candidate remains unpublished while Phase 006 completes exact hybrid and client validation.
+FutureShops documentation is organized by topic. The phase verification packets record repository controlled evidence for the NeoForge 1.21.1 line. The current 2.4.1 candidate remains unpublished while Phase 006 completes its remaining stale snapshot, support, and integration gates. Exact hybrid server and connected client buy and sell evidence is recorded in the Phase 006 packet.
 
 ## General
 

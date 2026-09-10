@@ -36,8 +36,23 @@ Provider declarations are upper bounds. A bound operation is admissible only whe
 
 Legacy records are classified as `LEGACY_COMPATIBLE`, `LEGACY_HYBRID_UNRESOLVED`, or `LEGACY_UNPROVABLE`. Unresolved hybrid and unprovable records remain in recovery or frozen state and are never rebound to the current account.
 
+## Exact hybrid support capture
+
+For a Pixelmon 9.4.0 hybrid report, first capture the server side evidence. Use the exact FutureShops candidate, NeoForge version, Pixelmon version, bridge versions, and provider setting from the report. Start a bounded capture with `/futureshops debug on all`, reproduce one buy or sell through the real shop screen, and immediately collect the `futureshops.debug` lines and packet statistics. The decisive server fields are the candidate SHA-256, account class, provider result, declared and observed capability sets, request ID, journal transitions, receipt status, and final balance. A successful client toast or screenshot supplements this record but never replaces the durable provider receipt.
+
+The connected client procedure is:
+
+1. Join the private test endpoint with the same candidate jar and verify the player name and second join after a server restart.
+2. Run `/futureshops debug on all` from an authorized operator account and record the returned session ID.
+3. Open `/shop`, open the named item, complete one buy and one sell, and retain the exact result text. A normal buy shows the item count or purchase completion, and a normal sell shows `Sold 1 item(s) for 750.` for the bounded diamond sword fixture.
+4. Filter the client log for `joined the game`, `Opened shop`, `Purchase complete`, `Sold`, `Insufficient funds`, and `Operation failed`. Correlate each line with the server session, request ID, and packet statistics.
+5. Reconnect once and verify the same shop snapshot and provider account are restored. Treat a stale snapshot response as a separate named check. Do not claim it from a reconnect or from server logs alone.
+6. Stop the capture with `/futureshops debug off`, then retain only sanitized excerpts, hashes, screenshots needed for a visible claim, and the cleanup result.
+
+The Phase 006 candidate has completed the exact hybrid server buy and sell probe and the connected client buy and sell path. The client sell screenshot is recorded in the Phase 006 validation packet by SHA-256. The separate stale snapshot client observation remains an open gate, so support reports must label it unverified until it has its own correlated response.
+
 ## Recovery and privacy
 
 Do not delete journals, receipts, custody, claims, account data, or world data to recover a transaction. Stop the server, preserve one complete matching snapshot, and inspect the original provider binding and receipt. An ambiguous external result is never replayed from a local log alone. Follow [backup and restore](operations/backup-restore.md) for restoration.
 
-Phase 004 captures server observable binding and diagnostic facts only. The current 2.4.1 candidate has additional native Pixelmon and common GameTest evidence in the [Phase 006 validation packet](verification/phase-006/p006-task-001-2026-09-10.md), but it makes no final exact hybrid or client release claim until those gates pass. Client layout, input, and reconnect evidence remain a later validation gate.
+Phase 004 captures server observable binding and diagnostic facts only. The current 2.4.1 candidate has additional native Pixelmon, exact hybrid server, and connected client evidence in the [Phase 006 validation packet](verification/phase-006/p006-task-001-2026-09-10.md). The packet records the exact account class, capabilities, reconnect, shop navigation, buy, sell, renderer, mute, and packet observations. A distinct connected client stale snapshot observation and the final issue, review, merge, tag, and publication gates remain open.
