@@ -36,6 +36,8 @@ Mutations received from a worker thread are marshaled to the Bukkit server threa
 
 The bridge is not bundled in the FutureShops jar. Install the separately built bridge plugin only on the hybrid server. Its source fixture and the exact external classpath are kept under `src/test/fixtures/finaleconomy-bridge` for operator builds and reproducible verification. Clients still receive only the FutureShops jar. Provider selection remains restart only.
 
+All shop and economy mutation surfaces use the bound route when this provider is active. The coordinator obtains one immutable account binding before the precheck, carries the runtime account reference through the mutation, and persists the binding with the pending and final journal transitions. Recovery rebinds the exact account and compares the persisted adapter, backend, lineage, currency, request fingerprint, and account identity before lookup or retry. A binding mismatch or unavailable bridge keeps the transaction in recovery or frozen state and never falls back to the internal wallet.
+
 Money items and ATM behavior remain internal provider features. They are inert when an external provider is selected. FutureShops never creates a balance mirror or mints a Pixelmon backed physical currency item.
 
 ## Installation and rollback

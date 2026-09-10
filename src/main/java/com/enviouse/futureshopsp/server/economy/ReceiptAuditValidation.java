@@ -3,6 +3,7 @@ package com.enviouse.futureshopsp.server.economy;
 import com.enviouse.futureshopsp.api.economy.MutationReceipt;
 import com.enviouse.futureshopsp.api.economy.MutationRequest;
 import com.enviouse.futureshopsp.api.economy.ProviderResultStatus;
+import com.enviouse.futureshopsp.api.economy.AccountBindingCodecV1;
 
 import java.util.Optional;
 
@@ -37,6 +38,15 @@ final class ReceiptAuditValidation {
         if (record.providerId().isBlank()) {
             return false;
         }
+        if (record.binding().isPresent()) {
+            var binding = record.binding().orElseThrow();
+            if (!record.providerId().equals(binding.providerId())
+                    || !record.request().requestId().equals(binding.legRequestId())
+                    || !record.request().requestId().equals(binding.rootRequestId())
+                    || !record.request().actor().equals(binding.accountUuid())) {
+                return false;
+            }
+        }
         Optional<MutationReceipt> receipt = record.receipt();
         if ((record.resultStatus() == ProviderResultStatus.CONFIRMED) != receipt.isPresent()) {
             return false;
@@ -56,6 +66,7 @@ final class ReceiptAuditValidation {
                 .append(record.resultStatus()).append('|')
                 .append(record.providerId()).append('|')
                 .append(record.diagnostic()).append('|');
+        record.binding().ifPresent(binding -> canonical.append(AccountBindingCodecV1.encode(binding)).append('|'));
         record.receipt().ifPresent(receipt -> canonical.append(receipt.requestId().value()).append('|')
                 .append(receipt.kind()).append('|')
                 .append(receipt.amountMinorUnits()).append('|')

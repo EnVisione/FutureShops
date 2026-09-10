@@ -1,6 +1,7 @@
 package com.enviouse.futureshopsp.server.economy;
 
 import com.enviouse.futureshopsp.api.economy.BoundEconomyOperationV1;
+import com.enviouse.futureshopsp.api.economy.BoundEconomyProvider;
 import com.enviouse.futureshopsp.api.economy.BalanceSnapshot;
 import com.enviouse.futureshopsp.api.economy.CurrencyMetadata;
 import com.enviouse.futureshopsp.api.economy.EconomyApi;
@@ -46,7 +47,8 @@ class BoundEconomyOperationCoordinatorTest {
 
         assertTrue(coordinator.preflight(operation).confirmed());
         assertTrue(coordinator.withdraw(operation).confirmed());
-        assertEquals(1, provider.withdrawCalls);
+        assertEquals(1, provider.boundMutateCalls);
+        assertEquals(0, provider.withdrawCalls);
     }
 
     @Test
@@ -74,6 +76,26 @@ class BoundEconomyOperationCoordinatorTest {
         assertEquals(0, provider.withdrawCalls);
     }
 
+    @Test
+    void regularRequestUsesBoundRouteAndPersistsBinding() {
+        BoundProvider provider = new BoundProvider();
+        EconomyLifecycleController lifecycle = new EconomyLifecycleController(provider.providerId());
+        lifecycle.resolve(ProviderLifecycle.READY, "", true, true, false);
+        InMemoryEconomyTransactionJournal journal = new InMemoryEconomyTransactionJournal();
+        EconomyTransactionCoordinator coordinator = new EconomyTransactionCoordinator(provider, lifecycle, journal);
+        MutationRequest request = MutationRequest.forPlayer(RequestId.random(), ACTOR, 10L,
+                MutationKind.WITHDRAW);
+
+        ProviderResult<MutationReceipt> result = coordinator.withdraw(request);
+
+        assertTrue(result.confirmed());
+        assertEquals(1, provider.bindCalls);
+        assertEquals(1, provider.boundPrecheckCalls);
+        assertEquals(1, provider.boundMutateCalls);
+        assertEquals(0, provider.withdrawCalls);
+        assertTrue(journal.find(request.requestId()).orElseThrow().binding().isPresent());
+    }
+
     private static BoundEconomyOperationV1 operation(MutationRequest request,
                                                       ProviderCapabilities required,
                                                       long generation) {
@@ -90,8 +112,40 @@ class BoundEconomyOperationCoordinatorTest {
         return new BoundEconomyOperationV1(request, ACTOR, required, persisted, proof);
     }
 
-    private static final class BoundProvider implements EconomyProvider {
+    private static final class BoundProvider implements EconomyProvider, BoundEconomyProvider {
+        private int bindCalls;
+        private int boundPrecheckCalls;
+        private int boundMutateCalls;
         private int withdrawCalls;
+
+        @Override
+        public ProviderResult<BoundEconomyOperationV1> bind(OperationRequest request, RequiredCapabilities required) {
+            bindCalls++;
+            return ProviderResult.confirmed(operation(request.mutationRequest(), required.value(), 1L));
+        }
+
+        @Override
+        public ProviderResult<BalanceSnapshot> precheck(BoundEconomyOperationV1 operation) {
+            boundPrecheckCalls++;
+            return ProviderResult.confirmed(new BalanceSnapshot(operation.actorId(), 100L));
+        }
+
+        @Override
+        public ProviderResult<MutationReceipt> mutate(BoundEconomyOperationV1 operation, MutationRequest request) {
+            boundMutateCalls++;
+            return ProviderResult.confirmed(new MutationReceipt(request.requestId(), request.kind(),
+                    request.amountMinorUnits(), "bound-" + request.requestId().value(), OptionalLong.of(90L)));
+        }
+
+        @Override
+        public ProviderResult<MutationReceipt> lookup(BoundEconomyOperationV1 operation) {
+            return ProviderResult.rejected(ProviderError.RECEIPT_NOT_FOUND, "missing");
+        }
+
+        @Override
+        public ProviderResult<MutationReceipt> retry(BoundEconomyOperationV1 operation) {
+            return mutate(operation, operation.request());
+        }
 
         @Override
         public String providerId() {
