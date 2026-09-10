@@ -71,3 +71,4 @@ FutureShops documentation is organized by topic. The phase verification packets 
 * [Phase 004 security review](verification/phase-004/security-review-2026-09-09.md)
 * [Phase 005 exact hybrid transaction evidence](verification/phase-005/p005-task-001-2026-09-09.md)
 * [Phase 006 candidate validation](verification/phase-006/p006-task-001-2026-09-10.md)
+* [Phase 006 support and delivery audit](verification/phase-006/p006-task-005-2026-09-10.md)
